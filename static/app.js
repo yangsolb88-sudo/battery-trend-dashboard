@@ -88,7 +88,7 @@ async function loadDashboard() {
     document.getElementById("kpiGrid").innerHTML = (latestData.kpis || []).map(kpiHtml).join("");
     document.getElementById("sourceCount").textContent = latestData.all_sources?.length ?? 0;
     document.getElementById("updatedAt").textContent = `${formatDate(latestData.generated_at)} KST`;
-    document.getElementById("apiCount").textContent = Object.keys(latestData.connections || {}).length || 4;
+    document.getElementById("apiCount").textContent = Object.keys(latestData.connections || {}).length || 6;
     document.getElementById("loading").classList.add("hidden");
     grid.classList.remove("hidden");
 

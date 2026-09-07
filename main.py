@@ -76,7 +76,7 @@ def build_url(base: str, params: dict[str, Any]) -> str:
     return f"{base}?{urlencode(clean, doseq=True)}"
 
 
-def request_json(url: str, *, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+def request_json(url: str, *, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> Any:
     hdrs = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     if headers:
         hdrs.update(headers)
@@ -252,6 +252,155 @@ def alpha_quotes() -> list[dict[str, Any]]:
     return out
 
 
+
+def _jsonstat_categories(payload: dict[str, Any], dim_id: str) -> list[tuple[str, str, int]]:
+    dim = (payload.get("dimension") or {}).get(dim_id) or {}
+    cat = dim.get("category") or {}
+    index = cat.get("index") or {}
+    labels = cat.get("label") or {}
+    if isinstance(index, list):
+        return [(str(code), str(labels.get(code, code)), pos) for pos, code in enumerate(index)]
+    if isinstance(index, dict):
+        return sorted([(str(code), str(labels.get(code, code)), int(pos)) for code, pos in index.items()], key=lambda x: x[2])
+    return []
+
+
+def eurostat_ev_registrations() -> dict[str, Any]:
+    """Latest EU zero-emission/battery-only passenger-car registrations from Eurostat. No API key required."""
+    base = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/road_eqr_zev"
+    payload = request_json(base, params={"lang": "en", "geo": "EU27_2020"})
+    ids = payload.get("id") or []
+    sizes = payload.get("size") or []
+    values = payload.get("value") or []
+    if not ids or not sizes or not values:
+        raise RuntimeError("Eurostat road_eqr_zev 응답 형식 확인 필요")
+
+    cats = {dim: _jsonstat_categories(payload, dim) for dim in ids}
+    time_dim = "time" if "time" in ids else ids[-1]
+    time_codes = cats.get(time_dim, [])
+    if not time_codes:
+        raise RuntimeError("Eurostat 시간축 없음")
+
+    def year_key(item: tuple[str, str, int]) -> int:
+        code, label, _ = item
+        for candidate in (code, label):
+            try:
+                return int(str(candidate)[:4])
+            except ValueError:
+                pass
+        return -1
+
+    latest_time = max(time_codes, key=year_key)
+    target_year = year_key(latest_time)
+
+    preferred: dict[str, set[int]] = {}
+    for dim in ids:
+        entries = cats.get(dim, [])
+        if dim == time_dim:
+            preferred[dim] = {latest_time[2]}
+            continue
+        if dim == "geo":
+            matches = {pos for code, label, pos in entries if code == "EU27_2020" or label.strip().lower() in {"european union - 27 countries (from 2020)", "european union"}}
+            if matches:
+                preferred[dim] = matches
+                continue
+        if dim in {"freq"} and any(code == "A" for code, _, _ in entries):
+            preferred[dim] = {pos for code, _, pos in entries if code == "A"}
+            continue
+        if dim in {"unit"} and any(code == "NR" for code, _, _ in entries):
+            preferred[dim] = {pos for code, _, pos in entries if code == "NR"}
+            continue
+        passenger = {pos for _, label, pos in entries if "passenger car" in label.lower()}
+        if passenger:
+            preferred[dim] = passenger
+            continue
+        battery = {pos for _, label, pos in entries if "battery-only" in label.lower() or "battery only" in label.lower()}
+        if battery:
+            preferred[dim] = battery
+            continue
+
+    # JSON-stat flattened array: last dimension varies fastest.
+    strides = []
+    for i in range(len(sizes)):
+        stride = 1
+        for later in sizes[i + 1:]:
+            stride *= int(later)
+        strides.append(stride)
+
+    candidates: list[tuple[float, list[int]]] = []
+    for flat_index, raw in enumerate(values):
+        if raw is None:
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            continue
+        coords = []
+        remain = flat_index
+        for size, stride in zip(sizes, strides):
+            pos = remain // stride
+            remain = remain % stride
+            coords.append(int(pos))
+        ok = True
+        for i, dim in enumerate(ids):
+            allowed = preferred.get(dim)
+            if allowed is not None and coords[i] not in allowed:
+                ok = False
+                break
+        if ok:
+            candidates.append((val, coords))
+
+    if not candidates:
+        raise RuntimeError("Eurostat EU 승용차 등록값을 찾지 못함")
+    # If an extra unspecified dimension remains, the aggregate/passenger-car value is normally the largest relevant value.
+    value, coords = max(candidates, key=lambda x: x[0])
+
+    labels = {}
+    for i, dim in enumerate(ids):
+        entries = cats.get(dim, [])
+        match = next((label for code, label, pos in entries if pos == coords[i]), "")
+        labels[dim] = match
+
+    return {
+        "year": target_year,
+        "value": value,
+        "label": next((v for k, v in labels.items() if "passenger car" in v.lower()), "EU zero-emission passenger cars"),
+        "source": source("Eurostat · New zero-emission road vehicles (road_eqr_zev)", "https://ec.europa.eu/eurostat/databrowser/view/road_eqr_zev/default/table?lang=en"),
+    }
+
+
+def world_bank_manufacturing() -> dict[str, Any]:
+    """Manufacturing value added (% of GDP) for key battery economies. No API key required."""
+    countries = "KOR;CHN;USA;EUU"
+    indicator = "NV.IND.MANF.ZS"
+    end_year = now_kst().year
+    start_year = end_year - 6
+    url = f"https://api.worldbank.org/v2/country/{countries}/indicator/{indicator}"
+    payload = request_json(url, params={"format": "json", "date": f"{start_year}:{end_year}", "per_page": "200"})
+    if not isinstance(payload, list) or len(payload) < 2 or not isinstance(payload[1], list):
+        raise RuntimeError("World Bank 응답 형식 확인 필요")
+    wanted = {"KOR": "한국", "CHN": "중국", "USA": "미국", "EUU": "EU"}
+    latest: dict[str, dict[str, Any]] = {}
+    for row in payload[1]:
+        if not isinstance(row, dict):
+            continue
+        code = ((row.get("countryiso3code") or "").upper())
+        value = safe_float(row.get("value"))
+        if code not in wanted or value is None:
+            continue
+        try:
+            year = int(row.get("date"))
+        except (TypeError, ValueError):
+            continue
+        if code not in latest or year > latest[code]["year"]:
+            latest[code] = {"country": wanted[code], "year": year, "value": value}
+    if not latest:
+        raise RuntimeError("World Bank 제조업 지표 값 없음")
+    return {
+        "rows": [latest[c] for c in ("KOR", "CHN", "USA", "EUU") if c in latest],
+        "source": source("World Bank · Manufacturing, value added (% of GDP)", "https://data.worldbank.org/indicator/NV.IND.MANF.ZS"),
+    }
+
 def parse_gdelt_date(value: str) -> str:
     if not value:
         return ""
@@ -371,6 +520,22 @@ def generate_dashboard_sync() -> dict[str, Any]:
         connections["alpha"] = {"status": "error", "label": "Alpha Vantage"}
         errors.append("Alpha Vantage")
 
+    eurostat = None
+    try:
+        eurostat = eurostat_ev_registrations()
+        connections["eurostat"] = {"status": "ok", "label": "Eurostat"}
+    except Exception:
+        connections["eurostat"] = {"status": "error", "label": "Eurostat"}
+        errors.append("Eurostat")
+
+    world_bank = None
+    try:
+        world_bank = world_bank_manufacturing()
+        connections["worldbank"] = {"status": "ok", "label": "World Bank"}
+    except Exception:
+        connections["worldbank"] = {"status": "error", "label": "World Bank"}
+        errors.append("World Bank")
+
     # 2) GDELT news — free, no key
     queries = {
         "MATERIALS": '(battery OR lithium) (lithium OR nickel OR cobalt OR graphite OR cathode OR precursor) sourcelang:english',
@@ -413,6 +578,17 @@ def generate_dashboard_sync() -> dict[str, Any]:
             f"• 미국 운영 중 utility-scale 배터리 저장용량 — {fmt_number(eia['capacity_mw'] / 1000, 2)} GW · {eia['period']} 기준 [{local_num}]"
         )
         market_sources.append(eia["source"])
+    if eurostat:
+        local_num = len(market_sources) + 1
+        market_lines.append(
+            f"• EU 신규 무배출 승용차 등록 — {fmt_number(eurostat['value'] / 1_000_000, 2)}백만 대 · {eurostat['year']}년 [{local_num}]"
+        )
+        market_sources.append(eurostat["source"])
+    if world_bank and world_bank.get("rows"):
+        local_num = len(market_sources) + 1
+        wb_text = " · ".join(f"{r['country']} {r['value']:.1f}%({r['year']})" for r in world_bank["rows"])
+        market_lines.append(f"• 주요 배터리 경제권 제조업 부가가치 비중 — {wb_text} [{local_num}]")
+        market_sources.append(world_bank["source"])
     if not market_lines:
         market_lines.append("• 시장 데이터 연결 대기 — Render 환경변수의 무료 API 키 설정을 확인할 필요가 있음")
     market_lines.append("\n시사점: 이 화면의 수치는 공식 API에서 자동 갱신되며, 각 기관의 발표 시차 때문에 현재 날짜와 데이터 기준월·연도는 다를 수 있음")
@@ -472,8 +648,16 @@ def generate_dashboard_sync() -> dict[str, Any]:
             "meta": f"{eia['period']} · utility-scale",
             "source": "U.S. EIA",
         })
+    if eurostat:
+        kpis.append({
+            "label": "EU 무배출 승용차 신규등록",
+            "value": f"{fmt_number(eurostat['value'] / 1_000_000, 2)}M",
+            "change": None,
+            "meta": f"{eurostat['year']} · Eurostat",
+            "source": "Eurostat",
+        })
     if quotes:
-        for quote in quotes[:2]:
+        for quote in quotes[:1]:
             kpis.append({
                 "label": quote["symbol"],
                 "value": f"${quote['price']:,.2f}",
