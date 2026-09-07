@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="AI 웹검색 기반 배터리 산업 동향 실시간 브리핑 대시보드" />
+  <title>Battery Trend Briefing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">B</div>
+        <div>
+          <strong>Battery Brief</strong>
+          <span>Industry Intelligence</span>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-section="overview"><span>01</span> 종합 브리핑</button>
+        <button class="nav-item" data-section="MARKET"><span>02</span> 시장·수요</button>
+        <button class="nav-item" data-section="MATERIALS"><span>03</span> 핵심광물·소재</button>
+        <button class="nav-item" data-section="POLICY"><span>04</span> 정책·규제</button>
+        <button class="nav-item" data-section="RECYCLING"><span>05</span> 재활용·재생원료</button>
+        <button class="nav-item" data-section="COMPANIES"><span>06</span> 기업 동향</button>
+        <button class="nav-item" data-section="TECHNOLOGY"><span>07</span> 기술 동향</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="status-dot"></div>
+        <div>
+          <b id="connectionLabel">데이터 확인 중</b>
+          <span>OpenAI Web Search</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">BATTERY INDUSTRY MONITOR</p>
+          <h1>배터리 산업 동향 브리핑</h1>
+          <p class="top-desc">시장 · 핵심광물 · 정책 · 재활용 · 기업 · 기술 이슈를 최신 웹자료 기반으로 자동 정리</p>
+        </div>
+        <div class="top-actions">
+          <div class="updated">
+            <span>LAST UPDATED</span>
+            <strong id="updatedAt">불러오는 중</strong>
+          </div>
+          <button id="reloadBtn" class="refresh-btn" type="button">새로고침</button>
+        </div>
+      </header>
+
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <span class="live-pill"><i></i> AI WEB MONITORING</span>
+          <h2>오늘 배터리 산업에서<br><em>봐야 할 변화</em>만 추렸습니다.</h2>
+          <p>공식기관·기업 발표·주요 언론·전문자료를 우선 검색하며, 6시간 캐시로 API 사용량을 제어합니다.</p>
+        </div>
+        <div class="hero-stat">
+          <div><span>MONITORING</span><strong>6</strong><small>핵심 영역</small></div>
+          <div><span>SOURCE</span><strong id="sourceCount">–</strong><small>이번 브리핑 출처</small></div>
+          <div><span>CACHE</span><strong>6h</strong><small>기본 갱신주기</small></div>
+        </div>
+      </section>
+
+      <section id="notice" class="notice hidden"></section>
+
+      <section id="loading" class="loading-grid">
+        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+      </section>
+
+      <section id="dashboard" class="dashboard-grid hidden"></section>
+
+      <section class="methodology">
+        <div>
+          <span class="section-kicker">HOW IT WORKS</span>
+          <h3>데이터 수집 방식</h3>
+        </div>
+        <div class="method-list">
+          <div><b>01</b><p><strong>웹검색</strong><span>OpenAI API가 최신 배터리 관련 웹자료를 검색</span></p></div>
+          <div><b>02</b><p><strong>우선순위 선별</strong><span>정부·공식기관·기업 IR·주요 언론·전문자료 중심</span></p></div>
+          <div><b>03</b><p><strong>한국어 브리핑</strong><span>6개 영역별 핵심 변화와 시사점으로 압축</span></p></div>
+          <div><b>04</b><p><strong>출처 연결</strong><span>검색 결과의 URL citation을 원문 링크로 제공</span></p></div>
+        </div>
+      </section>
+
+      <footer>
+        <span>Battery Trend Briefing</span>
+        <span>AI-generated research aid · 중요 의사결정 전 원문 재확인 권장</span>
+      </footer>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
