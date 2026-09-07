@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="AI 웹검색 기반 배터리 산업 동향 실시간 브리핑 대시보드" />
+  <meta name="description" content="무료 공개 API 기반 배터리 산업 동향 대시보드" />
   <title>Battery Trend Briefing</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,7 @@
         <div class="brand-mark">B</div>
         <div>
           <strong>Battery Brief</strong>
-          <span>Industry Intelligence</span>
+          <span>Open Data Monitor</span>
         </div>
       </div>
 
@@ -35,7 +35,7 @@
         <div class="status-dot"></div>
         <div>
           <b id="connectionLabel">데이터 확인 중</b>
-          <span>OpenAI Web Search</span>
+          <span>Free / Public APIs</span>
         </div>
       </div>
     </aside>
@@ -45,7 +45,7 @@
         <div>
           <p class="eyebrow">BATTERY INDUSTRY MONITOR</p>
           <h1>배터리 산업 동향 브리핑</h1>
-          <p class="top-desc">시장 · 핵심광물 · 정책 · 재활용 · 기업 · 기술 이슈를 최신 웹자료 기반으로 자동 정리</p>
+          <p class="top-desc">UN Comtrade · U.S. EIA · Alpha Vantage · GDELT 무료 API 기반 자동 업데이트</p>
         </div>
         <div class="top-actions">
           <div class="updated">
@@ -58,18 +58,20 @@
 
       <section class="hero-panel">
         <div class="hero-copy">
-          <span class="live-pill"><i></i> AI WEB MONITORING</span>
-          <h2>오늘 배터리 산업에서<br><em>봐야 할 변화</em>만 추렸습니다.</h2>
-          <p>공식기관·기업 발표·주요 언론·전문자료를 우선 검색하며, 6시간 캐시로 API 사용량을 제어합니다.</p>
+          <span class="live-pill"><i></i> FREE OPEN DATA MONITORING</span>
+          <h2>유료 AI 없이<br><em>공식·무료 데이터</em>로 추적합니다.</h2>
+          <p>수출입·미국 ESS·주요 상장사·글로벌 뉴스 데이터를 자동 조회하며, 6시간 서버 캐시로 무료 API 호출량을 제어합니다.</p>
         </div>
         <div class="hero-stat">
-          <div><span>MONITORING</span><strong>6</strong><small>핵심 영역</small></div>
-          <div><span>SOURCE</span><strong id="sourceCount">–</strong><small>이번 브리핑 출처</small></div>
+          <div><span>DATA API</span><strong id="apiCount">4</strong><small>무료 데이터 소스</small></div>
+          <div><span>SOURCE</span><strong id="sourceCount">–</strong><small>현재 원문 링크</small></div>
           <div><span>CACHE</span><strong>6h</strong><small>기본 갱신주기</small></div>
         </div>
       </section>
 
       <section id="notice" class="notice hidden"></section>
+
+      <section id="kpiGrid" class="kpi-grid"></section>
 
       <section id="loading" class="loading-grid">
         <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
@@ -84,16 +86,16 @@
           <h3>데이터 수집 방식</h3>
         </div>
         <div class="method-list">
-          <div><b>01</b><p><strong>웹검색</strong><span>OpenAI API가 최신 배터리 관련 웹자료를 검색</span></p></div>
-          <div><b>02</b><p><strong>우선순위 선별</strong><span>정부·공식기관·기업 IR·주요 언론·전문자료 중심</span></p></div>
-          <div><b>03</b><p><strong>한국어 브리핑</strong><span>6개 영역별 핵심 변화와 시사점으로 압축</span></p></div>
-          <div><b>04</b><p><strong>출처 연결</strong><span>검색 결과의 URL citation을 원문 링크로 제공</span></p></div>
+          <div><b>01</b><p><strong>UN Comtrade</strong><span>한국 리튬이온축전지 HS 850760 수출입</span></p></div>
+          <div><b>02</b><p><strong>U.S. EIA</strong><span>미국 utility-scale 배터리 저장용량</span></p></div>
+          <div><b>03</b><p><strong>Alpha Vantage</strong><span>ALB · SQM · TSLA 무료 종가 기반 지표</span></p></div>
+          <div><b>04</b><p><strong>GDELT</strong><span>핵심광물 · 정책 · 재활용 · 기술 최신 뉴스</span></p></div>
         </div>
       </section>
 
       <footer>
         <span>Battery Trend Briefing</span>
-        <span>AI-generated research aid · 중요 의사결정 전 원문 재확인 권장</span>
+        <span>무료 API는 제공기관의 발표시차·호출한도에 따라 갱신시점이 다를 수 있음</span>
       </footer>
     </main>
   </div>

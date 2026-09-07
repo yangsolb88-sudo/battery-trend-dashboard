@@ -17,9 +17,7 @@ function renderCitations(text, sources) {
   safe = safe.replace(/\[(\d+)\]/g, (_, n) => {
     const src = byNumber.get(Number(n));
     if (!src) return `[${n}]`;
-    const url = escapeHtml(src.url);
-    const title = escapeHtml(src.title);
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${title}">[${n}]</a>`;
+    return `<a href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(src.title)}">[${n}]</a>`;
   });
   return safe;
 }
@@ -46,6 +44,22 @@ function cardHtml(key, data, index) {
     </article>`;
 }
 
+function kpiHtml(kpi) {
+  const change = Number(kpi.change);
+  const hasChange = Number.isFinite(change);
+  const changeClass = !hasChange ? "" : change > 0 ? "up" : change < 0 ? "down" : "flat";
+  const changeText = hasChange ? `${change > 0 ? "+" : ""}${change.toFixed(1)}%` : "";
+  return `
+    <article class="kpi-card">
+      <div class="kpi-label">${escapeHtml(kpi.label)}</div>
+      <div class="kpi-value-row">
+        <strong>${escapeHtml(kpi.value)}</strong>
+        ${changeText ? `<span class="kpi-change ${changeClass}">${changeText}</span>` : ""}
+      </div>
+      <div class="kpi-meta">${escapeHtml(kpi.meta || "")}${kpi.source ? ` · ${escapeHtml(kpi.source)}` : ""}</div>
+    </article>`;
+}
+
 function setFocus(key) {
   const grid = document.getElementById("dashboard");
   document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.section === key));
@@ -68,24 +82,25 @@ async function loadDashboard() {
     const res = await fetch("/api/dashboard", {cache:"no-store"});
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     latestData = await res.json();
+
     const grid = document.getElementById("dashboard");
     grid.innerHTML = sectionOrder.map((key,i) => cardHtml(key, latestData.sections[key], i)).join("");
+    document.getElementById("kpiGrid").innerHTML = (latestData.kpis || []).map(kpiHtml).join("");
     document.getElementById("sourceCount").textContent = latestData.all_sources?.length ?? 0;
     document.getElementById("updatedAt").textContent = `${formatDate(latestData.generated_at)} KST`;
+    document.getElementById("apiCount").textContent = Object.keys(latestData.connections || {}).length || 4;
     document.getElementById("loading").classList.add("hidden");
     grid.classList.remove("hidden");
 
     const notice = document.getElementById("notice");
     const label = document.getElementById("connectionLabel");
     if (latestData.status === "live") {
-      label.textContent = "LIVE 데이터 연결";
+      label.textContent = "무료 API 정상 연결";
       notice.classList.add("hidden");
     } else {
-      label.textContent = latestData.status === "stale" ? "캐시 데이터 표시" : "DEMO 모드";
+      label.textContent = latestData.status === "partial" ? "일부 API 연결" : latestData.status === "stale" ? "캐시 데이터 표시" : "연결 확인 필요";
       notice.classList.remove("hidden");
-      notice.textContent = latestData.status === "demo"
-        ? "현재 데모 모드임. Render 환경변수에 OPENAI_API_KEY를 추가하면 최신 웹검색 브리핑으로 자동 전환됨."
-        : "외부 API 호출에 일시적인 문제가 있어 마지막 정상 데이터를 표시 중임.";
+      notice.textContent = latestData.reason || "일부 무료 API 응답을 불러오지 못함";
     }
   } catch (e) {
     document.getElementById("notice").classList.remove("hidden");

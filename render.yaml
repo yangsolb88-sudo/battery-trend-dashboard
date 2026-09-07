@@ -1,17 +1,21 @@
 services:
   - type: web
-    name: battery-trend-briefing
+    name: battery-trend-dashboard
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
-      - key: OPENAI_API_KEY
+      - key: COMTRADE_API_KEY
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-6-astra
+      - key: EIA_API_KEY
+        sync: false
+      - key: ALPHAVANTAGE_API_KEY
+        sync: false
       - key: CACHE_TTL_SECONDS
         value: "21600"
+      - key: STOCK_SYMBOLS
+        value: "ALB,SQM,TSLA"
       - key: PYTHON_VERSION
         value: 3.13.5
