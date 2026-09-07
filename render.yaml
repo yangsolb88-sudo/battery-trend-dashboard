@@ -17,5 +17,7 @@ services:
         value: "21600"
       - key: STOCK_SYMBOLS
         value: "ALB,SQM,TSLA"
+      - key: NEWS_LOOKBACK_MONTHS
+        value: "6"
       - key: PYTHON_VERSION
         value: 3.13.5

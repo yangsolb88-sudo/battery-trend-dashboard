@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="무료 공개 API 기반 배터리 산업 동향 대시보드" />
-  <title>Battery Trend Briefing</title>
+  <meta name="description" content="국내외 사용후 배터리·폐배터리 재활용 뉴스 및 정책 동향 대시보드" />
+  <title>사용후 배터리 재활용 동향 브리핑</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -16,19 +16,19 @@
       <div class="brand">
         <div class="brand-mark">B</div>
         <div>
-          <strong>Battery Brief</strong>
-          <span>Open Data Monitor</span>
+          <strong>Battery Circular</strong>
+          <span>Used Battery Monitor</span>
         </div>
       </div>
 
       <nav class="nav" id="nav">
         <button class="nav-item active" data-section="overview"><span>01</span> 종합 브리핑</button>
-        <button class="nav-item" data-section="MARKET"><span>02</span> 시장·수요</button>
-        <button class="nav-item" data-section="MATERIALS"><span>03</span> 핵심광물·소재</button>
-        <button class="nav-item" data-section="POLICY"><span>04</span> 정책·규제</button>
-        <button class="nav-item" data-section="RECYCLING"><span>05</span> 재활용·재생원료</button>
-        <button class="nav-item" data-section="COMPANIES"><span>06</span> 기업 동향</button>
-        <button class="nav-item" data-section="TECHNOLOGY"><span>07</span> 기술 동향</button>
+        <button class="nav-item" data-section="DOMESTIC_NEWS"><span>02</span> 국내 뉴스</button>
+        <button class="nav-item" data-section="GLOBAL_NEWS"><span>03</span> 해외 뉴스</button>
+        <button class="nav-item" data-section="DOMESTIC_POLICY"><span>04</span> 국내 정책·제도</button>
+        <button class="nav-item" data-section="GLOBAL_POLICY"><span>05</span> 해외 정책·규제</button>
+        <button class="nav-item" data-section="RECYCLING"><span>06</span> 재활용·재생원료</button>
+        <button class="nav-item" data-section="MARKET"><span>07</span> 시장·기반 통계</button>
       </nav>
 
       <div class="sidebar-foot">
@@ -43,9 +43,9 @@
     <main class="main">
       <header class="topbar">
         <div>
-          <p class="eyebrow">BATTERY INDUSTRY MONITOR</p>
-          <h1>배터리 산업 동향 브리핑</h1>
-          <p class="top-desc">UN Comtrade · U.S. EIA · Alpha Vantage · GDELT · Eurostat · World Bank 무료 API 기반 자동 업데이트</p>
+          <p class="eyebrow">USED BATTERY CIRCULARITY MONITOR</p>
+          <h1>사용후 배터리 재활용 동향 브리핑</h1>
+          <p class="top-desc">국내·해외 사용후 배터리 재활용 뉴스를 5개 핵심키워드로 모니터링하고 최근 6개월 동향을 자동 업데이트</p>
         </div>
         <div class="top-actions">
           <div class="updated">
@@ -58,19 +58,40 @@
 
       <section class="hero-panel">
         <div class="hero-copy">
-          <span class="live-pill"><i></i> FREE OPEN DATA MONITORING</span>
-          <h2>무료 공개 API로<br><em>배터리 산업 데이터</em>를 추적합니다.</h2>
-          <p>수출입·미국 ESS·주요 상장사·글로벌 뉴스·EU 전기차·글로벌 제조업 지표를 자동 조회하며, 6시간 서버 캐시로 무료 API 호출량을 제어합니다.</p>
+          <span class="live-pill"><i></i> USED BATTERY / RECYCLING MONITORING</span>
+          <h2>국내와 해외의<br><em>사용후 배터리 순환 이슈</em>를 분리해 봅니다.</h2>
+          <p>사용후 배터리 재활용·배터리 재생원료·배터리 순환경제·배터리 재생원료 인증·배터리 여권을 추적하며, 뉴스 조사기간은 최근 6개월을 기본값으로 적용합니다.</p>
         </div>
         <div class="hero-stat">
-          <div><span>DATA API</span><strong id="apiCount">6</strong><small>무료 데이터 소스</small></div>
+          <div><span>국내 뉴스</span><strong id="domesticCount">–</strong><small>최근 관련 기사</small></div>
+          <div><span>해외 뉴스</span><strong id="globalCount">–</strong><small>최근 관련 기사</small></div>
           <div><span>SOURCE</span><strong id="sourceCount">–</strong><small>현재 원문 링크</small></div>
-          <div><span>CACHE</span><strong>6h</strong><small>기본 갱신주기</small></div>
+        </div>
+      </section>
+
+      <section class="keyword-panel">
+        <div class="keyword-panel-head">
+          <div>
+            <span class="section-kicker">MONITORING KEYWORDS</span>
+            <h3>사용후 배터리 재활용 핵심키워드</h3>
+          </div>
+          <div class="period-badge">기본 조사기간 <strong>최근 6개월</strong></div>
+        </div>
+        <div class="keyword-table-wrap">
+          <table class="keyword-table">
+            <thead><tr><th>No.</th><th>한국어</th><th>English</th><th>日本語</th><th>中文（简体）</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>사용후 배터리 재활용</td><td>End-of-life battery recycling</td><td>使用済み電池リサイクル</td><td>退役电池回收利用</td></tr>
+              <tr><td>2</td><td>배터리 재생원료</td><td>Recycled battery materials</td><td>電池再生原料</td><td>电池再生原料</td></tr>
+              <tr><td>3</td><td>배터리 순환경제</td><td>Battery circular economy</td><td>電池循環経済</td><td>电池循环经济</td></tr>
+              <tr><td>4</td><td>배터리 재생원료 인증</td><td>Recycled battery materials certification</td><td>電池再生原料認証</td><td>电池再生原料认证</td></tr>
+              <tr><td>5</td><td>배터리 여권</td><td>Battery passport</td><td>バッテリーパスポート</td><td>电池护照</td></tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
       <section id="notice" class="notice hidden"></section>
-
       <section id="kpiGrid" class="kpi-grid"></section>
 
       <section id="loading" class="loading-grid">
@@ -82,22 +103,22 @@
 
       <section class="methodology">
         <div>
-          <span class="section-kicker">HOW IT WORKS</span>
-          <h3>데이터 수집 방식</h3>
+          <span class="section-kicker">DATA SOURCES</span>
+          <h3>무료 데이터 수집 방식</h3>
         </div>
         <div class="method-list">
-          <div><b>01</b><p><strong>UN Comtrade</strong><span>한국 리튬이온축전지 HS 850760 수출입</span></p></div>
-          <div><b>02</b><p><strong>U.S. EIA</strong><span>미국 utility-scale 배터리 저장용량</span></p></div>
-          <div><b>03</b><p><strong>Alpha Vantage</strong><span>ALB · SQM · TSLA 무료 종가 기반 지표</span></p></div>
-          <div><b>04</b><p><strong>GDELT</strong><span>핵심광물 · 정책 · 재활용 · 기술 최신 뉴스</span></p></div>
-          <div><b>05</b><p><strong>Eurostat</strong><span>EU 배터리 전기 승용차 신규등록 동향</span></p></div>
-          <div><b>06</b><p><strong>World Bank</strong><span>한국 · 중국 · 미국 · EU 제조업 기반 지표</span></p></div>
+          <div><b>01</b><p><strong>GDELT</strong><span>5개 핵심키워드 기준 국내/해외 뉴스 최근 6개월 분리 수집</span></p></div>
+          <div><b>02</b><p><strong>UN Comtrade</strong><span>한국 리튬이온축전지 HS 850760 수출입</span></p></div>
+          <div><b>03</b><p><strong>U.S. EIA</strong><span>미국 BESS 운영용량 — 향후 사용후 배터리 기반</span></p></div>
+          <div><b>04</b><p><strong>Eurostat</strong><span>EU battery-only 전기 승용차 신규등록</span></p></div>
+          <div><b>05</b><p><strong>World Bank</strong><span>주요 배터리 경제권 제조업 기반 지표</span></p></div>
+          <div><b>06</b><p><strong>Alpha Vantage</strong><span>관련 상장사 종가 기반 보조 시장지표</span></p></div>
         </div>
       </section>
 
       <footer>
-        <span>Battery Trend Briefing</span>
-        <span>무료 API는 제공기관의 발표시차·호출한도에 따라 갱신시점이 다를 수 있음</span>
+        <span>Used Battery Circularity Briefing</span>
+        <span>무료 API 특성상 제공기관별 발표시차·호출한도에 따라 갱신시점이 다를 수 있음</span>
       </footer>
     </main>
   </div>

@@ -1,7 +1,8 @@
 import asyncio
+import calendar
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -16,23 +17,76 @@ BASE_DIR = Path(__file__).resolve().parent
 KST = ZoneInfo("Asia/Seoul")
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "21600"))  # 6 hours
 HTTP_TIMEOUT = 22
-USER_AGENT = "BatteryTrendDashboard/3.0 (+Render; public-data dashboard)"
+USER_AGENT = "UsedBatteryTrendDashboard/5.0 (+Render; public-data dashboard)"
 
-app = FastAPI(title="Battery Trend Briefing", version="3.0.0")
+app = FastAPI(title="Used Battery Circularity Briefing", version="5.0.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 _cache: dict[str, Any] = {"data": None, "expires_at": 0.0}
 _refresh_lock = asyncio.Lock()
 
-SECTION_KEYS = ["MARKET", "MATERIALS", "POLICY", "RECYCLING", "COMPANIES", "TECHNOLOGY"]
+SECTION_KEYS = [
+    "DOMESTIC_NEWS",
+    "GLOBAL_NEWS",
+    "DOMESTIC_POLICY",
+    "GLOBAL_POLICY",
+    "RECYCLING",
+    "MARKET",
+]
+
 SECTION_META = {
-    "MARKET": {"title": "시장·수요", "subtitle": "배터리 무역 · 미국 ESS"},
-    "MATERIALS": {"title": "핵심광물·소재", "subtitle": "Li · Ni · Co · 흑연 · 양극재"},
-    "POLICY": {"title": "정책·규제", "subtitle": "EU · 미국 · 한국 · 중국"},
-    "RECYCLING": {"title": "재활용·재생원료", "subtitle": "폐배터리 · 블랙매스 · 재생원료"},
-    "COMPANIES": {"title": "기업 동향", "subtitle": "주요 상장사 지표 · 기업 뉴스"},
-    "TECHNOLOGY": {"title": "기술 동향", "subtitle": "전고체 · LFP · Na-ion · 건식전극"},
+    "DOMESTIC_NEWS": {"title": "국내 사용후 배터리 뉴스", "subtitle": "폐배터리 · 사용후 배터리 · 재활용 · 재사용"},
+    "GLOBAL_NEWS": {"title": "해외 사용후 배터리 뉴스", "subtitle": "End-of-life battery · Recycling · Second life"},
+    "DOMESTIC_POLICY": {"title": "국내 정책·제도", "subtitle": "회수체계 · 재활용 · 재생원료 · 인증제도"},
+    "GLOBAL_POLICY": {"title": "해외 정책·규제", "subtitle": "EU Battery Regulation · EPR · Recycled content"},
+    "RECYCLING": {"title": "재활용·재생원료 동향", "subtitle": "블랙매스 · 습식제련 · 재생 Li·Ni·Co · 투자"},
+    "MARKET": {"title": "시장·기반 통계", "subtitle": "한국 배터리 무역 · 미국 BESS · EU 전기차 · 제조업"},
 }
+
+NEWS_LOOKBACK_MONTHS = int(os.getenv("NEWS_LOOKBACK_MONTHS", "6"))
+
+KEYWORD_CATALOG = [
+    {
+        "no": 1,
+        "ko": "사용후 배터리 재활용",
+        "en": "End-of-life battery recycling",
+        "ja": "使用済み電池リサイクル",
+        "zh": "退役电池回收利用",
+        "query": '("end-of-life battery recycling" OR "used battery recycling" OR "spent battery recycling")',
+    },
+    {
+        "no": 2,
+        "ko": "배터리 재생원료",
+        "en": "Recycled battery materials",
+        "ja": "電池再生原料",
+        "zh": "电池再生原料",
+        "query": '("recycled battery materials" OR "recycled battery material")',
+    },
+    {
+        "no": 3,
+        "ko": "배터리 순환경제",
+        "en": "Battery circular economy",
+        "ja": "電池循環経済",
+        "zh": "电池循环经济",
+        "query": '("battery circular economy" OR "battery circularity")',
+    },
+    {
+        "no": 4,
+        "ko": "배터리 재생원료 인증",
+        "en": "Recycled battery materials certification",
+        "ja": "電池再生原料認証",
+        "zh": "电池再生原料认证",
+        "query": '("recycled battery materials certification" OR "recycled content certification")',
+    },
+    {
+        "no": 5,
+        "ko": "배터리 여권",
+        "en": "Battery passport",
+        "ja": "バッテリーパスポート",
+        "zh": "电池护照",
+        "query": '"battery passport"',
+    },
+]
 
 
 def now_kst() -> datetime:
@@ -89,15 +143,15 @@ def source(title: str, url: str) -> dict[str, str]:
     return {"title": title, "url": url}
 
 
-def comtrade_trade() -> dict[str, Any]:
-    """Korea (410) lithium-ion accumulators HS 850760, annual trade with World.
+# ---------------------------------------------------------------------------
+# Official / free data APIs
+# ---------------------------------------------------------------------------
 
-    Uses the authenticated free endpoint when a key exists, then automatically
-    falls back to the public preview endpoint if the key/plan rejects the call.
-    """
+def comtrade_trade() -> dict[str, Any]:
+    """Korea lithium-ion accumulators HS 850760 annual trade with World."""
     key = os.getenv("COMTRADE_API_KEY", "").strip()
     current_year = now_kst().year
-    years = [current_year - i for i in range(1, 6)]  # completed/recent years
+    years = [current_year - i for i in range(1, 6)]
 
     def fetch_one(year: int, flow: str) -> list[dict[str, Any]]:
         params = {
@@ -111,19 +165,24 @@ def comtrade_trade() -> dict[str, Any]:
         }
         errors = []
         if key:
-            # UN Comtrade documents subscription-key as a supported query parameter.
             try:
-                return (request_json(
-                    "https://comtradeapi.un.org/data/v1/get/C/A/HS",
-                    params={**params, "subscription-key": key},
-                ).get("data") or [])
+                return (
+                    request_json(
+                        "https://comtradeapi.un.org/data/v1/get/C/A/HS",
+                        params={**params, "subscription-key": key},
+                    ).get("data")
+                    or []
+                )
             except Exception as exc:
                 errors.append(f"auth:{type(exc).__name__}")
         try:
-            return (request_json(
-                "https://comtradeapi.un.org/public/v1/preview/C/A/HS",
-                params=params,
-            ).get("data") or [])
+            return (
+                request_json(
+                    "https://comtradeapi.un.org/public/v1/preview/C/A/HS",
+                    params=params,
+                ).get("data")
+                or []
+            )
         except Exception as exc:
             errors.append(f"preview:{type(exc).__name__}")
             raise RuntimeError("UN Comtrade 호출 실패 (" + ", ".join(errors) + ")")
@@ -164,7 +223,13 @@ def comtrade_trade() -> dict[str, Any]:
     latest_year = max([x["year"] for x in (export_latest, import_latest) if x] or years[:1])
     src_url = build_url(
         "https://comtradeapi.un.org/public/v1/preview/C/A/HS",
-        {"reporterCode": "410", "partnerCode": "0", "cmdCode": "850760", "flowCode": "X", "period": str(latest_year)},
+        {
+            "reporterCode": "410",
+            "partnerCode": "0",
+            "cmdCode": "850760",
+            "flowCode": "X",
+            "period": str(latest_year),
+        },
     )
 
     return {
@@ -172,14 +237,21 @@ def comtrade_trade() -> dict[str, Any]:
         "imports": import_latest,
         "export_prev": export_prev,
         "import_prev": import_prev,
-        "export_change": pct_change(export_latest["value"] if export_latest else None, export_prev["value"] if export_prev else None),
-        "import_change": pct_change(import_latest["value"] if import_latest else None, import_prev["value"] if import_prev else None),
+        "export_change": pct_change(
+            export_latest["value"] if export_latest else None,
+            export_prev["value"] if export_prev else None,
+        ),
+        "import_change": pct_change(
+            import_latest["value"] if import_latest else None,
+            import_prev["value"] if import_prev else None,
+        ),
         "source": source("UN Comtrade · Korea HS 850760", src_url),
         "using_key": bool(key),
     }
 
+
 def eia_battery_capacity() -> dict[str, Any]:
-    """Latest U.S. utility-scale operating battery storage (MWH) nameplate capacity."""
+    """Latest U.S. utility-scale operating battery storage nameplate capacity."""
     key = os.getenv("EIA_API_KEY", "").strip()
     if not key:
         raise RuntimeError("EIA_API_KEY 미설정")
@@ -194,8 +266,7 @@ def eia_battery_capacity() -> dict[str, Any]:
         "sort[0][column]": "period",
         "sort[0][direction]": "desc",
     }
-    latest_params = {**common, "length": "1", "offset": "0"}
-    latest_payload = request_json(base, params=latest_params)
+    latest_payload = request_json(base, params={**common, "length": "1", "offset": "0"})
     latest_rows = latest_payload.get("response", {}).get("data", [])
     if not latest_rows:
         raise RuntimeError("EIA 배터리 저장용량 최신 기간을 찾지 못함")
@@ -203,14 +274,10 @@ def eia_battery_capacity() -> dict[str, Any]:
     if not period:
         raise RuntimeError("EIA 최신 기간 값 없음")
 
-    data_params = {
-        **common,
-        "start": period,
-        "end": period,
-        "length": "5000",
-        "offset": "0",
-    }
-    payload = request_json(base, params=data_params)
+    payload = request_json(
+        base,
+        params={**common, "start": period, "end": period, "length": "5000", "offset": "0"},
+    )
     rows = payload.get("response", {}).get("data", [])
     total_mw = 0.0
     count = 0
@@ -225,12 +292,11 @@ def eia_battery_capacity() -> dict[str, Any]:
         if state_id:
             states[str(state_id)] = states.get(str(state_id), 0.0) + cap
 
-    top_states = sorted(states.items(), key=lambda x: x[1], reverse=True)[:3]
     return {
         "period": period,
         "capacity_mw": total_mw,
         "generator_count": count,
-        "top_states": top_states,
+        "top_states": sorted(states.items(), key=lambda x: x[1], reverse=True)[:3],
         "source": source(
             "U.S. EIA · Inventory of Operable Generators",
             "https://www.eia.gov/opendata/browser/electricity/operating-generator-capacity",
@@ -238,42 +304,57 @@ def eia_battery_capacity() -> dict[str, Any]:
     }
 
 
-def alpha_quotes() -> list[dict[str, Any]]:
+def alpha_quotes() -> dict[str, Any]:
+    """Free Global Quote with a deliberate delay to respect free rate limits."""
     key = os.getenv("ALPHAVANTAGE_API_KEY", "").strip()
     if not key:
         raise RuntimeError("ALPHAVANTAGE_API_KEY 미설정")
 
-    symbols = [s.strip().upper() for s in os.getenv("STOCK_SYMBOLS", "ALB,SQM,TSLA").split(",") if s.strip()][:3]
-    out = []
-    last_message = ""
-    for symbol in symbols:
+    symbols = [
+        s.strip().upper()
+        for s in os.getenv("STOCK_SYMBOLS", "ALB,SQM,TSLA").split(",")
+        if s.strip()
+    ][:3]
+    out: list[dict[str, Any]] = []
+    messages: list[str] = []
+
+    for idx, symbol in enumerate(symbols):
+        if idx:
+            time.sleep(1.25)  # Alpha Vantage free tier: space requests out
         payload = request_json(
             "https://www.alphavantage.co/query",
             params={"function": "GLOBAL_QUOTE", "symbol": symbol, "apikey": key},
         )
         quote = payload.get("Global Quote") or {}
         if not quote:
-            last_message = str(payload.get("Information") or payload.get("Note") or payload.get("Error Message") or "응답 데이터 없음")
+            msg = str(
+                payload.get("Information")
+                or payload.get("Note")
+                or payload.get("Error Message")
+                or "응답 데이터 없음"
+            )
+            messages.append(f"{symbol}: {msg[:120]}")
             continue
         price = safe_float(quote.get("05. price"))
-        change_pct = safe_float(quote.get("10. change percent"))
-        latest_day = quote.get("07. latest trading day") or ""
         if price is None:
             continue
-        out.append({
-            "symbol": symbol,
-            "price": price,
-            "change_percent": change_pct,
-            "latest_day": latest_day,
-            "source": source(
-                f"Alpha Vantage · {symbol} Global Quote",
-                "https://www.alphavantage.co/documentation/#latestprice",
-            ),
-        })
+        out.append(
+            {
+                "symbol": symbol,
+                "price": price,
+                "change_percent": safe_float(quote.get("10. change percent")),
+                "latest_day": quote.get("07. latest trading day") or "",
+                "source": source(
+                    f"Alpha Vantage · {symbol} Global Quote",
+                    "https://www.alphavantage.co/documentation/#latestprice",
+                ),
+            }
+        )
+
     if not out:
-        detail = last_message[:160] if last_message else "무료 호출 한도 또는 API 키 상태 확인 필요"
-        raise RuntimeError("Alpha Vantage: " + detail)
-    return out
+        detail = " / ".join(messages) if messages else "무료 호출 한도 또는 API 키 상태 확인 필요"
+        raise RuntimeError("Alpha Vantage: " + detail[:220])
+    return {"quotes": out, "partial": len(out) < len(symbols), "messages": messages}
 
 
 def _jsonstat_categories(payload: dict[str, Any], dim_id: str) -> list[tuple[str, str, int]]:
@@ -284,30 +365,47 @@ def _jsonstat_categories(payload: dict[str, Any], dim_id: str) -> list[tuple[str
     if isinstance(index, list):
         return [(str(code), str(labels.get(code, code)), pos) for pos, code in enumerate(index)]
     if isinstance(index, dict):
-        return sorted([(str(code), str(labels.get(code, code)), int(pos)) for code, pos in index.items()], key=lambda x: x[2])
+        return sorted(
+            [(str(code), str(labels.get(code, code)), int(pos)) for code, pos in index.items()],
+            key=lambda x: x[2],
+        )
     return []
 
 
-def eurostat_ev_registrations() -> dict[str, Any]:
-    """Latest EU battery-only electric passenger-car registrations.
+def _jsonstat_value_items(values: Any) -> list[tuple[int, float]]:
+    """JSON-stat may expose value as a dense list or a sparse {index:value} object."""
+    out: list[tuple[int, float]] = []
+    if isinstance(values, dict):
+        iterable = values.items()
+    elif isinstance(values, list):
+        iterable = enumerate(values)
+    else:
+        return out
+    for raw_idx, raw_val in iterable:
+        if raw_val is None:
+            continue
+        try:
+            out.append((int(raw_idx), float(raw_val)))
+        except (TypeError, ValueError):
+            continue
+    return out
 
-    Uses Eurostat road_eqr_carpda and selects the battery-only motor-energy
-    category dynamically from JSON-stat labels, avoiding hard-coded position indexes.
-    """
+
+def eurostat_ev_registrations() -> dict[str, Any]:
+    """Latest EU battery-only electric passenger-car new registrations."""
     base = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/road_eqr_carpda"
     payload = request_json(base, params={"lang": "en", "geo": "EU27_2020", "lastTimePeriod": "1"})
     ids = payload.get("id") or []
     sizes = payload.get("size") or []
-    values = payload.get("value") or []
-    if not ids or not sizes or values is None:
+    value_items = _jsonstat_value_items(payload.get("value"))
+    if not ids or not sizes or not value_items:
         raise RuntimeError("Eurostat road_eqr_carpda 응답 형식 확인 필요")
 
     cats = {dim: _jsonstat_categories(payload, dim) for dim in ids}
-    # Work out flat-array strides; last dimension varies fastest.
     strides = []
     for i in range(len(sizes)):
         stride = 1
-        for later in sizes[i + 1:]:
+        for later in sizes[i + 1 :]:
             stride *= int(later)
         strides.append(stride)
 
@@ -316,84 +414,88 @@ def eurostat_ev_registrations() -> dict[str, Any]:
         entries = cats.get(dim, [])
         if dim == "geo":
             m = {pos for code, label, pos in entries if code == "EU27_2020" or "27 countries" in label.lower()}
-            if m: preferred[dim] = m
+            if m:
+                preferred[dim] = m
         elif dim == "freq":
             m = {pos for code, label, pos in entries if code == "A" or label.lower() == "annual"}
-            if m: preferred[dim] = m
+            if m:
+                preferred[dim] = m
         elif dim == "unit":
             m = {pos for code, label, pos in entries if code == "NR" or "number" in label.lower()}
-            if m: preferred[dim] = m
+            if m:
+                preferred[dim] = m
         else:
-            # Battery-only electric motor energy is the key selection.
-            m = {pos for code, label, pos in entries if "battery-only" in label.lower() or "battery only" in label.lower()}
-            if m: preferred[dim] = m
+            m = {
+                pos
+                for code, label, pos in entries
+                if "battery-only" in label.lower()
+                or "battery only" in label.lower()
+                or "battery electric" in label.lower()
+            }
+            if m:
+                preferred[dim] = m
 
     candidates: list[tuple[float, list[int]]] = []
-    for flat_index, raw in enumerate(values):
-        if raw is None:
-            continue
-        try:
-            val = float(raw)
-        except (TypeError, ValueError):
-            continue
-        coords = []
+    for flat_index, val in value_items:
+        coords: list[int] = []
         remain = flat_index
         for size, stride in zip(sizes, strides):
             pos = remain // stride
             remain %= stride
             coords.append(int(pos))
-        ok = True
-        for i, dim in enumerate(ids):
-            allowed = preferred.get(dim)
-            if allowed is not None and coords[i] not in allowed:
-                ok = False
-                break
-        if ok:
+        if all(
+            preferred.get(dim) is None or coords[i] in preferred[dim]
+            for i, dim in enumerate(ids)
+        ):
             candidates.append((val, coords))
 
     if not candidates:
         raise RuntimeError("Eurostat EU battery-only 승용차 등록값을 찾지 못함")
     value, coords = max(candidates, key=lambda x: x[0])
 
-    labels = {}
-    codes = {}
+    codes: dict[str, str] = {}
     for i, dim in enumerate(ids):
         entries = cats.get(dim, [])
         match = next(((code, label) for code, label, pos in entries if pos == coords[i]), ("", ""))
-        codes[dim], labels[dim] = match
-    year_text = codes.get("time") or labels.get("time") or ""
+        codes[dim] = match[0]
+
     try:
-        year = int(str(year_text)[:4])
+        year = int(str(codes.get("time") or now_kst().year - 1)[:4])
     except (TypeError, ValueError):
         year = now_kst().year - 1
 
-    # Sanity guard: EU annual BEV registrations should be a count, not a tiny rate.
     if value < 100_000:
-        raise RuntimeError(f"Eurostat 선택값이 비정상적으로 작음 ({value:g}); 차원 선택 재확인 필요")
+        raise RuntimeError(f"Eurostat 선택값이 비정상적으로 작음 ({value:g})")
 
     return {
         "year": year,
         "value": value,
-        "label": "EU battery-only electric passenger-car registrations",
-        "source": source("Eurostat · New passenger cars by type of motor energy (road_eqr_carpda)", "https://ec.europa.eu/eurostat/databrowser/view/road_eqr_carpda/default/table?lang=en"),
+        "source": source(
+            "Eurostat · New passenger cars by type of motor energy",
+            "https://ec.europa.eu/eurostat/databrowser/view/road_eqr_carpda/default/table?lang=en",
+        ),
     }
 
+
 def world_bank_manufacturing() -> dict[str, Any]:
-    """Manufacturing value added (% of GDP) for key battery economies. No API key required."""
     countries = "KOR;CHN;USA;EUU"
     indicator = "NV.IND.MANF.ZS"
     end_year = now_kst().year
     start_year = end_year - 6
     url = f"https://api.worldbank.org/v2/country/{countries}/indicator/{indicator}"
-    payload = request_json(url, params={"format": "json", "date": f"{start_year}:{end_year}", "per_page": "200"})
+    payload = request_json(
+        url,
+        params={"format": "json", "date": f"{start_year}:{end_year}", "per_page": "200"},
+    )
     if not isinstance(payload, list) or len(payload) < 2 or not isinstance(payload[1], list):
         raise RuntimeError("World Bank 응답 형식 확인 필요")
+
     wanted = {"KOR": "한국", "CHN": "중국", "USA": "미국", "EUU": "EU"}
     latest: dict[str, dict[str, Any]] = {}
     for row in payload[1]:
         if not isinstance(row, dict):
             continue
-        code = ((row.get("countryiso3code") or "").upper())
+        code = (row.get("countryiso3code") or "").upper()
         value = safe_float(row.get("value"))
         if code not in wanted or value is None:
             continue
@@ -405,10 +507,19 @@ def world_bank_manufacturing() -> dict[str, Any]:
             latest[code] = {"country": wanted[code], "year": year, "value": value}
     if not latest:
         raise RuntimeError("World Bank 제조업 지표 값 없음")
+
     return {
         "rows": [latest[c] for c in ("KOR", "CHN", "USA", "EUU") if c in latest],
-        "source": source("World Bank · Manufacturing, value added (% of GDP)", "https://data.worldbank.org/indicator/NV.IND.MANF.ZS"),
+        "source": source(
+            "World Bank · Manufacturing, value added (% of GDP)",
+            "https://data.worldbank.org/indicator/NV.IND.MANF.ZS",
+        ),
     }
+
+
+# ---------------------------------------------------------------------------
+# GDELT news — specifically used / end-of-life batteries and recycling
+# ---------------------------------------------------------------------------
 
 def parse_gdelt_date(value: str) -> str:
     if not value:
@@ -416,57 +527,108 @@ def parse_gdelt_date(value: str) -> str:
     value = str(value)
     for fmt in ("%Y%m%dT%H%M%SZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S"):
         try:
-            dt = datetime.strptime(value, fmt)
-            return dt.strftime("%Y-%m-%d")
+            return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
         except ValueError:
             pass
     return value[:10]
 
 
-def gdelt_articles(query: str, *, timespan: str = "1week", maxrecords: int = 6) -> list[dict[str, Any]]:
-    def fetch(span: str) -> list[dict[str, Any]]:
-        params = {
+def _shift_months(dt: datetime, months: int) -> datetime:
+    """Shift an aware datetime by whole calendar months."""
+    total = dt.year * 12 + (dt.month - 1) + months
+    year, month0 = divmod(total, 12)
+    month = month0 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def _gdelt_fetch_window(query: str, start_dt: datetime, end_dt: datetime, maxrecords: int) -> list[dict[str, Any]]:
+    payload = request_json(
+        "https://api.gdeltproject.org/api/v2/doc/doc",
+        params={
             "query": query,
             "mode": "artlist",
-            "maxrecords": str(maxrecords),
-            "timespan": span,
+            "maxrecords": str(min(maxrecords, 250)),
+            "startdatetime": start_dt.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S"),
+            "enddatetime": end_dt.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S"),
             "sort": "datedesc",
             "format": "json",
-        }
-        payload = request_json("https://api.gdeltproject.org/api/v2/doc/doc", params=params)
-        return payload.get("articles") or []
+        },
+    )
+    return payload.get("articles") or []
 
-    articles = fetch(timespan)
-    if not articles and timespan != "1month":
-        articles = fetch("1month")
-    out = []
-    seen_urls = set()
-    for article in articles:
-        if not isinstance(article, dict):
-            continue
-        url = article.get("url")
-        title = (article.get("title") or "").strip()
-        if not url or not title or url in seen_urls:
-            continue
-        seen_urls.add(url)
-        out.append({
-            "title": title,
-            "url": url,
-            "domain": article.get("domain") or "",
-            "date": parse_gdelt_date(article.get("seendate") or ""),
-            "country": article.get("sourcecountry") or "",
-        })
-        if len(out) >= maxrecords:
-            break
-    return out
 
-def news_section(articles: list[dict[str, Any]], fallback: str) -> tuple[str, list[dict[str, str]]]:
+def gdelt_articles(
+    queries: str | list[str],
+    *,
+    maxrecords: int = 12,
+    lookback_months: int = NEWS_LOOKBACK_MONTHS,
+) -> list[dict[str, Any]]:
+    """
+    Search the requested period by splitting it into <=3-month windows.
+    GDELT ArticleList prioritizes the most recent 3 months of a broad window,
+    so splitting the default 6-month horizon makes the full period searchable.
+    """
+    query_list = [queries] if isinstance(queries, str) else queries
+    now_utc = datetime.now(timezone.utc)
+    start_utc = _shift_months(now_utc, -max(1, lookback_months))
+
+    windows: list[tuple[datetime, datetime]] = []
+    cursor_end = now_utc
+    while cursor_end > start_utc:
+        cursor_start = max(_shift_months(cursor_end, -3), start_utc)
+        windows.append((cursor_start, cursor_end))
+        cursor_end = cursor_start - timedelta(seconds=1)
+
+    collected: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    last_error: Exception | None = None
+
+    # Fetch a little more from each window so older coverage is not discarded
+    # simply because the most recent window already has many results.
+    per_window = min(max(maxrecords * 2, 20), 75)
+    for window_start, window_end in windows:
+        for query in query_list:
+            try:
+                articles = _gdelt_fetch_window(query, window_start, window_end, per_window)
+            except Exception as exc:
+                last_error = exc
+                continue
+            for article in articles:
+                if not isinstance(article, dict):
+                    continue
+                url = str(article.get("url") or "").strip()
+                title = str(article.get("title") or "").strip()
+                if not url or not title or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                collected.append(
+                    {
+                        "title": title,
+                        "url": url,
+                        "domain": article.get("domain") or "",
+                        "date": parse_gdelt_date(article.get("seendate") or ""),
+                        "country": article.get("sourcecountry") or "",
+                        "language": article.get("language") or "",
+                    }
+                )
+        time.sleep(0.12)
+
+    collected.sort(key=lambda x: (x.get("date") or "", x.get("title") or ""), reverse=True)
+    if not collected and last_error:
+        raise RuntimeError(f"GDELT 호출 실패: {type(last_error).__name__}")
+    return collected[:maxrecords]
+
+
+def news_section(articles: list[dict[str, Any]], fallback: str, *, limit: int = 7) -> tuple[str, list[dict[str, str]]]:
     if not articles:
         return fallback, []
-    lines = []
-    sources = []
-    for i, article in enumerate(articles[:4], start=1):
-        meta = " · ".join(x for x in [article.get("domain"), article.get("date")] if x)
+    lines: list[str] = []
+    sources: list[dict[str, str]] = []
+    for i, article in enumerate(articles[:limit], start=1):
+        meta = " · ".join(
+            x for x in [article.get("domain"), article.get("country"), article.get("date")] if x
+        )
         lines.append(f"• {article['title']} [{i}]" + (f"\n  {meta}" if meta else ""))
         sources.append(source(article["title"], article["url"]))
     return "\n\n".join(lines), sources
@@ -489,7 +651,6 @@ def assign_global_source_numbers(sections: dict[str, Any]) -> list[dict[str, Any
             local_to_global[local_num] = source_index[url]
 
         text = section.get("text", "")
-        # Replace local [1], [2] markers from right to left through a temporary token.
         for local_num, global_num in sorted(local_to_global.items(), reverse=True):
             text = text.replace(f"[{local_num}]", f"[[SRC{global_num}]]")
         for global_num in sorted(set(local_to_global.values())):
@@ -517,189 +678,234 @@ def _safe_error(exc: Exception) -> str:
 
 def generate_dashboard_sync() -> dict[str, Any]:
     generated = now_kst()
-    connections: dict[str, dict[str, str]] = {}
-    errors: list[str] = []
+    connections: dict[str, dict[str, Any]] = {}
 
-    # 1) Official data APIs
+    # Official data APIs ------------------------------------------------------
     trade = None
     try:
         trade = comtrade_trade()
-        connections["comtrade"] = _conn("UN Comtrade", "ok", "한국 HS 850760 수출입 연결", bool(os.getenv("COMTRADE_API_KEY", "").strip()))
+        connections["comtrade"] = _conn(
+            "UN Comtrade", "ok", "한국 HS 850760 수출입 연결", bool(os.getenv("COMTRADE_API_KEY", "").strip())
+        )
     except Exception as exc:
-        connections["comtrade"] = _conn("UN Comtrade", "error", _safe_error(exc), bool(os.getenv("COMTRADE_API_KEY", "").strip()))
-        errors.append("UN Comtrade")
+        connections["comtrade"] = _conn(
+            "UN Comtrade", "error", _safe_error(exc), bool(os.getenv("COMTRADE_API_KEY", "").strip())
+        )
 
     eia = None
     try:
         eia = eia_battery_capacity()
         connections["eia"] = _conn("U.S. EIA", "ok", "미국 운영 배터리 저장용량 연결", True)
     except Exception as exc:
-        connections["eia"] = _conn("U.S. EIA", "error", _safe_error(exc), bool(os.getenv("EIA_API_KEY", "").strip()))
-        errors.append("U.S. EIA")
+        connections["eia"] = _conn(
+            "U.S. EIA", "error", _safe_error(exc), bool(os.getenv("EIA_API_KEY", "").strip())
+        )
 
-    quotes: list[dict[str, Any]] = []
+    alpha = None
     try:
-        quotes = alpha_quotes()
-        connections["alpha"] = _conn("Alpha Vantage", "ok", "무료 종가 지표 연결", True)
+        alpha = alpha_quotes()
+        alpha_status = "limited" if alpha.get("partial") else "ok"
+        detail = f"상장사 {len(alpha.get('quotes', []))}개 종가 지표 연결"
+        if alpha_status == "limited":
+            detail += " · 일부 무료 호출 제한"
+        connections["alpha"] = _conn("Alpha Vantage", alpha_status, detail, True)
     except Exception as exc:
-        connections["alpha"] = _conn("Alpha Vantage", "error", _safe_error(exc), bool(os.getenv("ALPHAVANTAGE_API_KEY", "").strip()))
-        errors.append("Alpha Vantage")
+        connections["alpha"] = _conn(
+            "Alpha Vantage", "limited", _safe_error(exc), bool(os.getenv("ALPHAVANTAGE_API_KEY", "").strip())
+        )
 
     eurostat = None
     try:
         eurostat = eurostat_ev_registrations()
         connections["eurostat"] = _conn("Eurostat", "ok", "EU battery-only 승용차 등록 연결")
     except Exception as exc:
-        connections["eurostat"] = _conn("Eurostat", "error", _safe_error(exc))
-        errors.append("Eurostat")
+        connections["eurostat"] = _conn("Eurostat", "limited", _safe_error(exc))
 
     world_bank = None
     try:
         world_bank = world_bank_manufacturing()
         connections["worldbank"] = _conn("World Bank", "ok", "제조업 부가가치 지표 연결")
     except Exception as exc:
-        connections["worldbank"] = _conn("World Bank", "error", _safe_error(exc))
-        errors.append("World Bank")
+        connections["worldbank"] = _conn("World Bank", "limited", _safe_error(exc))
 
-    # 2) GDELT news — free, no key
-    queries = {
-        "MATERIALS": '(lithium OR nickel OR cobalt OR graphite OR cathode OR precursor) battery sourcelang:english',
-        "POLICY": '("battery regulation" OR "battery policy" OR IRA OR FEOC OR "critical raw materials") sourcelang:english',
-        "RECYCLING": '("battery recycling" OR "black mass" OR "recycled content" OR hydrometallurgy) sourcelang:english',
-        "COMPANIES": '("LG Energy Solution" OR "Samsung SDI" OR "SK On" OR CATL OR BYD OR Panasonic) battery sourcelang:english',
-        "TECHNOLOGY": '("solid state battery" OR LFP OR LMFP OR "sodium ion" OR "dry electrode" OR "silicon anode") sourcelang:english',
-    }
+    # Used-battery news -------------------------------------------------------
+    # User-defined five keyword families. GDELT searches translated global news,
+    # while the dashboard displays the Korean/English/Japanese/Chinese keyword dictionary.
+    all_keyword_query = "(" + " OR ".join(item["query"] for item in KEYWORD_CATALOG) + ")"
+    recycling_keyword_query = "(" + " OR ".join(item["query"] for item in KEYWORD_CATALOG[:3]) + ")"
+    policy_keyword_query = "(" + " OR ".join(item["query"] for item in KEYWORD_CATALOG[3:]) + ")"
+
+    domestic_query = f"{all_keyword_query} sourcecountry:southkorea"
+    global_query = f"{all_keyword_query} -sourcecountry:southkorea"
+    domestic_policy_query = f"{policy_keyword_query} sourcecountry:southkorea"
+    global_policy_query = f"{policy_keyword_query} -sourcecountry:southkorea"
+    recycling_market_query = recycling_keyword_query
+
     news: dict[str, list[dict[str, Any]]] = {}
+    news_queries = {
+        "DOMESTIC_NEWS": domestic_query,
+        "GLOBAL_NEWS": global_query,
+        "DOMESTIC_POLICY": domestic_policy_query,
+        "GLOBAL_POLICY": global_policy_query,
+        "RECYCLING": recycling_market_query,
+    }
     gdelt_ok = 0
-    for key, query in queries.items():
+    for key, query in news_queries.items():
         try:
-            news[key] = gdelt_articles(query, timespan="1week", maxrecords=6)
+            news[key] = gdelt_articles(query, maxrecords=12, lookback_months=NEWS_LOOKBACK_MONTHS)
             if news[key]:
                 gdelt_ok += 1
         except Exception:
             news[key] = []
-    connections["gdelt"] = _conn("GDELT", "ok" if gdelt_ok else "error", f"뉴스 카테고리 {gdelt_ok}/5 연결" if gdelt_ok else "GDELT 기사 목록 응답 없음")
-    if not gdelt_ok:
-        errors.append("GDELT")
+        time.sleep(0.25)
 
-    # MARKET section
+    connections["gdelt"] = _conn(
+        "GDELT",
+        "ok" if gdelt_ok >= 2 else ("limited" if gdelt_ok else "error"),
+        f"5개 핵심키워드 · 최근 {NEWS_LOOKBACK_MONTHS}개월 · 뉴스 카테고리 {gdelt_ok}/5 연결"
+        if gdelt_ok
+        else "GDELT 기사 목록 응답 없음",
+    )
+
+    # Build sections ---------------------------------------------------------
+    sections: dict[str, Any] = {}
+    fallback = {
+        "DOMESTIC_NEWS": "• 최근 6개월 내 국내 5개 핵심키워드 관련 뉴스가 조회되지 않았거나 GDELT가 일시적으로 제한됨",
+        "GLOBAL_NEWS": "• 최근 6개월 내 해외 5개 핵심키워드 관련 뉴스가 조회되지 않았거나 GDELT가 일시적으로 제한됨",
+        "DOMESTIC_POLICY": "• 최근 국내 사용후 배터리 회수·재활용·재생원료 정책 뉴스 조회 결과 없음",
+        "GLOBAL_POLICY": "• 최근 해외 배터리 재활용·재생원료·EPR·배터리여권 규제 뉴스 조회 결과 없음",
+        "RECYCLING": "• 최근 블랙매스·습식제련·재생 Li·Ni·Co 관련 글로벌 동향 조회 결과 없음",
+    }
+    for key in ("DOMESTIC_NEWS", "GLOBAL_NEWS", "DOMESTIC_POLICY", "GLOBAL_POLICY", "RECYCLING"):
+        text, srcs = news_section(news.get(key, []), fallback[key], limit=7)
+        sections[key] = {**SECTION_META[key], "text": text, "sources": srcs}
+
     market_lines: list[str] = []
     market_sources: list[dict[str, str]] = []
     if trade:
         exp = trade.get("exports")
         imp = trade.get("imports")
         if exp:
-            change = trade.get("export_change")
-            change_text = f" ({change:+.1f}% YoY)" if change is not None else ""
-            market_lines.append(f"• 한국 리튬이온축전지(HS 850760) 수출 — {exp['year']}년 {fmt_money(exp['value'])}{change_text} [1]")
+            ch = trade.get("export_change")
+            ch_text = f" ({ch:+.1f}% YoY)" if ch is not None else ""
+            market_lines.append(
+                f"• 한국 리튬이온축전지(HS 850760) 수출 — {exp['year']}년 {fmt_money(exp['value'])}{ch_text} [1]"
+            )
         if imp:
-            change = trade.get("import_change")
-            change_text = f" ({change:+.1f}% YoY)" if change is not None else ""
-            market_lines.append(f"• 한국 리튬이온축전지(HS 850760) 수입 — {imp['year']}년 {fmt_money(imp['value'])}{change_text} [1]")
+            ch = trade.get("import_change")
+            ch_text = f" ({ch:+.1f}% YoY)" if ch is not None else ""
+            market_lines.append(
+                f"• 한국 리튬이온축전지(HS 850760) 수입 — {imp['year']}년 {fmt_money(imp['value'])}{ch_text} [1]"
+            )
         market_sources.append(trade["source"])
+
     if eia:
         local_num = len(market_sources) + 1
         market_lines.append(
             f"• 미국 운영 중 utility-scale 배터리 저장용량 — {fmt_number(eia['capacity_mw'] / 1000, 2)} GW · {eia['period']} 기준 [{local_num}]"
         )
         market_sources.append(eia["source"])
+
     if eurostat:
         local_num = len(market_sources) + 1
         market_lines.append(
-            f"• EU 신규 무배출 승용차 등록 — {fmt_number(eurostat['value'] / 1_000_000, 2)}백만 대 · {eurostat['year']}년 [{local_num}]"
+            f"• EU 신규 battery-only 전기 승용차 등록 — {fmt_number(eurostat['value'] / 1_000_000, 2)}백만 대 · {eurostat['year']}년 [{local_num}]"
         )
         market_sources.append(eurostat["source"])
+
     if world_bank and world_bank.get("rows"):
         local_num = len(market_sources) + 1
         wb_text = " · ".join(f"{r['country']} {r['value']:.1f}%({r['year']})" for r in world_bank["rows"])
         market_lines.append(f"• 주요 배터리 경제권 제조업 부가가치 비중 — {wb_text} [{local_num}]")
         market_sources.append(world_bank["source"])
-    if not market_lines:
-        market_lines.append("• 시장 데이터 연결 대기 — Render 환경변수의 무료 API 키 설정을 확인할 필요가 있음")
-    market_lines.append("\n시사점: 이 화면의 수치는 공식 API에서 자동 갱신되며, 각 기관의 발표 시차 때문에 현재 날짜와 데이터 기준월·연도는 다를 수 있음")
 
-    # News sections
-    sections: dict[str, Any] = {
-        "MARKET": {**SECTION_META["MARKET"], "text": "\n\n".join(market_lines), "sources": market_sources},
-    }
-    fallback_text = {
-        "MATERIALS": "• 최근 7일 핵심광물·소재 뉴스 조회 결과가 없거나 GDELT 연결이 일시적으로 제한됨",
-        "POLICY": "• 최근 7일 배터리 정책·규제 뉴스 조회 결과가 없거나 GDELT 연결이 일시적으로 제한됨",
-        "RECYCLING": "• 최근 7일 배터리 재활용·재생원료 뉴스 조회 결과가 없거나 GDELT 연결이 일시적으로 제한됨",
-        "TECHNOLOGY": "• 최근 7일 배터리 기술 뉴스 조회 결과가 없거나 GDELT 연결이 일시적으로 제한됨",
-    }
-    for key in ("MATERIALS", "POLICY", "RECYCLING", "TECHNOLOGY"):
-        text, srcs = news_section(news.get(key, []), fallback_text[key])
-        sections[key] = {**SECTION_META[key], "text": text, "sources": srcs}
-
-    company_lines: list[str] = []
-    company_sources: list[dict[str, str]] = []
-    if quotes:
-        for quote in quotes:
-            local_num = len(company_sources) + 1
+    if alpha and alpha.get("quotes"):
+        for quote in alpha["quotes"]:
+            local_num = len(market_sources) + 1
             change = quote.get("change_percent")
             change_text = f" · {change:+.2f}%" if change is not None else ""
             date_text = f" · {quote['latest_day']}" if quote.get("latest_day") else ""
-            company_lines.append(f"• {quote['symbol']} — ${quote['price']:,.2f}{change_text}{date_text} [{local_num}]")
-            company_sources.append(quote["source"])
-    company_news = news.get("COMPANIES", [])[:3]
-    for article in company_news:
-        local_num = len(company_sources) + 1
-        meta = " · ".join(x for x in [article.get("domain"), article.get("date")] if x)
-        company_lines.append(f"• {article['title']} [{local_num}]" + (f"\n  {meta}" if meta else ""))
-        company_sources.append(source(article["title"], article["url"]))
-    if not company_lines:
-        company_lines.append("• 기업 데이터 연결 대기 — Alpha Vantage 무료 API 키 또는 GDELT 연결상태 확인 필요")
-    sections["COMPANIES"] = {**SECTION_META["COMPANIES"], "text": "\n\n".join(company_lines), "sources": company_sources}
+            market_lines.append(
+                f"• 관련 시장지표 {quote['symbol']} — ${quote['price']:,.2f}{change_text}{date_text} [{local_num}]"
+            )
+            market_sources.append(quote["source"])
+
+    if not market_lines:
+        market_lines.append("• 공식 통계 데이터 연결 대기 — Render 환경변수의 무료 API 키 설정 확인 필요")
+    market_lines.append(
+        "\n해석 유의: 위 지표는 사용후 배터리 발생량 자체가 아니라 향후 회수·재활용 시장의 기반이 되는 배터리 보급·무역·산업 지표임"
+    )
+    sections["MARKET"] = {
+        **SECTION_META["MARKET"],
+        "text": "\n\n".join(market_lines),
+        "sources": market_sources,
+    }
 
     all_sources = assign_global_source_numbers(sections)
 
-    # KPI cards
-    kpis: list[dict[str, Any]] = []
+    # KPI: user-facing focus is news + used-battery market base
+    domestic_count = len(news.get("DOMESTIC_NEWS", []))
+    global_count = len(news.get("GLOBAL_NEWS", []))
+    kpis: list[dict[str, Any]] = [
+        {
+            "label": "국내 사용후 배터리 뉴스",
+            "value": f"{domestic_count}건",
+            "change": None,
+            "meta": f"최근 {NEWS_LOOKBACK_MONTHS}개월 · 5개 핵심키워드",
+            "source": "GDELT",
+        },
+        {
+            "label": "해외 사용후 배터리 뉴스",
+            "value": f"{global_count}건",
+            "change": None,
+            "meta": f"최근 {NEWS_LOOKBACK_MONTHS}개월 · 글로벌 뉴스",
+            "source": "GDELT",
+        },
+    ]
     if trade and trade.get("exports"):
         exp = trade["exports"]
-        kpis.append({
-            "label": "한국 Li-ion 배터리 수출",
-            "value": fmt_money(exp["value"]),
-            "change": trade.get("export_change"),
-            "meta": f"{exp['year']} · HS 850760",
-            "source": "UN Comtrade",
-        })
-    if eia:
-        kpis.append({
-            "label": "미국 BESS 운영용량",
-            "value": f"{fmt_number(eia['capacity_mw'] / 1000, 2)} GW",
-            "change": None,
-            "meta": f"{eia['period']} · utility-scale",
-            "source": "U.S. EIA",
-        })
-    if eurostat:
-        kpis.append({
-            "label": "EU 무배출 승용차 신규등록",
-            "value": f"{fmt_number(eurostat['value'] / 1_000_000, 2)}M",
-            "change": None,
-            "meta": f"{eurostat['year']} · Eurostat",
-            "source": "Eurostat",
-        })
-    if quotes:
-        for quote in quotes[:1]:
-            kpis.append({
-                "label": quote["symbol"],
-                "value": f"${quote['price']:,.2f}",
-                "change": quote.get("change_percent"),
-                "meta": quote.get("latest_day") or "latest close",
-                "source": "Alpha Vantage",
-            })
-    while len(kpis) < 4:
-        kpis.append({"label": "무료 API", "value": "연결 대기", "change": None, "meta": "Render 환경변수 확인", "source": ""})
+        kpis.append(
+            {
+                "label": "한국 Li-ion 배터리 수출",
+                "value": fmt_money(exp["value"]),
+                "change": trade.get("export_change"),
+                "meta": f"{exp['year']} · HS 850760",
+                "source": "UN Comtrade",
+            }
+        )
+    else:
+        kpis.append({"label": "한국 Li-ion 배터리 수출", "value": "연결 대기", "change": None, "meta": "HS 850760", "source": ""})
 
-    ok_count = sum(1 for item in connections.values() if item["status"] == "ok")
-    status = "live" if ok_count == len(connections) else ("partial" if ok_count else "offline")
+    if eia:
+        kpis.append(
+            {
+                "label": "미국 BESS 운영용량",
+                "value": f"{fmt_number(eia['capacity_mw'] / 1000, 2)} GW",
+                "change": None,
+                "meta": f"{eia['period']} · 향후 사용후 배터리 기반",
+                "source": "U.S. EIA",
+            }
+        )
+    else:
+        kpis.append({"label": "미국 BESS 운영용량", "value": "연결 대기", "change": None, "meta": "utility-scale", "source": ""})
+
+    # Main status: GDELT + the two key official feeds are essential; the rest are supplemental.
+    essential_ok = (
+        connections.get("gdelt", {}).get("status") in {"ok", "limited"}
+        and connections.get("comtrade", {}).get("status") == "ok"
+        and connections.get("eia", {}).get("status") == "ok"
+    )
+    status = "live" if essential_ok else "partial"
+    warning_sources = [
+        item["label"]
+        for item in connections.values()
+        if item.get("status") in {"error", "limited"}
+    ]
     expires = generated.timestamp() + CACHE_TTL
 
     return {
         "status": status,
-        "reason": "" if not errors else "연결 확인 필요: " + ", ".join(errors),
+        "reason": "" if not warning_sources else "보조 API 확인: " + ", ".join(warning_sources),
         "generated_at": generated.isoformat(timespec="seconds"),
         "expires_at": datetime.fromtimestamp(expires, KST).isoformat(timespec="seconds"),
         "cache_seconds": CACHE_TTL,
@@ -707,6 +913,9 @@ def generate_dashboard_sync() -> dict[str, Any]:
         "all_sources": all_sources,
         "kpis": kpis[:4],
         "connections": connections,
+        "news_counts": {"domestic": domestic_count, "global": global_count},
+        "news_lookback_months": NEWS_LOOKBACK_MONTHS,
+        "keywords": KEYWORD_CATALOG,
     }
 
 
@@ -725,7 +934,6 @@ async def get_dashboard() -> dict[str, Any]:
             _cache["expires_at"] = now_ts + CACHE_TTL
             return data
         except Exception:
-            # Never expose secrets or full request URLs in an error payload.
             if _cache["data"] is not None:
                 stale = dict(_cache["data"])
                 stale["status"] = "stale"
@@ -737,10 +945,14 @@ async def get_dashboard() -> dict[str, Any]:
                 "generated_at": now_kst().isoformat(timespec="seconds"),
                 "expires_at": now_kst().isoformat(timespec="seconds"),
                 "cache_seconds": CACHE_TTL,
-                "sections": {key: {**SECTION_META[key], "text": "데이터 연결 대기", "sources": []} for key in SECTION_KEYS},
+                "sections": {
+                    key: {**SECTION_META[key], "text": "데이터 연결 대기", "sources": []}
+                    for key in SECTION_KEYS
+                },
                 "all_sources": [],
                 "kpis": [],
                 "connections": {},
+                "news_counts": {"domestic": 0, "global": 0},
             }
 
 
@@ -760,6 +972,7 @@ async def status_api() -> dict[str, Any]:
     return {
         "status": data.get("status"),
         "generated_at": data.get("generated_at"),
+        "news_counts": data.get("news_counts", {}),
         "connections": data.get("connections", {}),
         "environment": {
             "COMTRADE_API_KEY": bool(os.getenv("COMTRADE_API_KEY", "").strip()),

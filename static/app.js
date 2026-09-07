@@ -1,4 +1,4 @@
-const sectionOrder = ["MARKET","MATERIALS","POLICY","RECYCLING","COMPANIES","TECHNOLOGY"];
+const sectionOrder = ["DOMESTIC_NEWS","GLOBAL_NEWS","DOMESTIC_POLICY","GLOBAL_POLICY","RECYCLING","MARKET"];
 let latestData = null;
 
 function escapeHtml(value) {
@@ -8,7 +8,9 @@ function escapeHtml(value) {
 function formatDate(iso) {
   if (!iso) return "–";
   const d = new Date(iso);
-  return new Intl.DateTimeFormat("ko-KR", { timeZone:"Asia/Seoul", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }).format(d);
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone:"Asia/Seoul", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit"
+  }).format(d);
 }
 
 function renderCitations(text, sources) {
@@ -27,8 +29,9 @@ function cardHtml(key, data, index) {
   const sourceHtml = sources.length ? sources.map(s => `
     <a class="source-link" href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">[${s.number}] ${escapeHtml(s.title)}</a>`).join("") :
     `<span class="source-link">출처 링크 없음</span>`;
+  const isNews = ["DOMESTIC_NEWS","GLOBAL_NEWS"].includes(key);
   return `
-    <article class="brief-card" data-key="${key}">
+    <article class="brief-card ${isNews ? 'news-card' : ''}" data-key="${key}">
       <div class="brief-head">
         <div>
           <h3>${escapeHtml(data.title)}</h3>
@@ -74,6 +77,15 @@ function setFocus(key) {
   grid.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
+function connectionSummary(connections) {
+  const items = Object.values(connections || {});
+  const bad = items.filter(x => x.status === "error");
+  const limited = items.filter(x => x.status === "limited");
+  if (bad.length) return `연결 확인 필요: ${bad.map(x => x.label).join(", ")}`;
+  if (limited.length) return `보조 API 일부 제한: ${limited.map(x => x.label).join(", ")}`;
+  return "";
+}
+
 async function loadDashboard() {
   const btn = document.getElementById("reloadBtn");
   btn.disabled = true;
@@ -88,21 +100,28 @@ async function loadDashboard() {
     document.getElementById("kpiGrid").innerHTML = (latestData.kpis || []).map(kpiHtml).join("");
     document.getElementById("sourceCount").textContent = latestData.all_sources?.length ?? 0;
     document.getElementById("updatedAt").textContent = `${formatDate(latestData.generated_at)} KST`;
-    document.getElementById("apiCount").textContent = Object.keys(latestData.connections || {}).length || 6;
+    document.getElementById("domesticCount").textContent = latestData.news_counts?.domestic ?? 0;
+    document.getElementById("globalCount").textContent = latestData.news_counts?.global ?? 0;
     document.getElementById("loading").classList.add("hidden");
     grid.classList.remove("hidden");
 
     const notice = document.getElementById("notice");
     const label = document.getElementById("connectionLabel");
+    const warning = connectionSummary(latestData.connections);
     if (latestData.status === "live") {
-      label.textContent = "무료 API 정상 연결";
-      notice.classList.add("hidden");
+      label.textContent = "사용후 배터리 동향 연결";
+      if (warning) {
+        notice.classList.remove("hidden");
+        notice.classList.add("soft-notice");
+        notice.textContent = warning;
+      } else {
+        notice.classList.add("hidden");
+      }
     } else {
-      label.textContent = latestData.status === "partial" ? "일부 API 연결" : latestData.status === "stale" ? "캐시 데이터 표시" : "연결 확인 필요";
+      label.textContent = latestData.status === "stale" ? "캐시 데이터 표시" : "일부 API 연결";
       notice.classList.remove("hidden");
-      const bad = Object.values(latestData.connections || {}).filter(x => x.status !== "ok");
-      const details = bad.map(x => `${x.label}: ${x.detail || "연결 실패"}`).join(" / ");
-      notice.textContent = details || latestData.reason || "일부 무료 API 응답을 불러오지 못함";
+      notice.classList.remove("soft-notice");
+      notice.textContent = warning || latestData.reason || "일부 무료 API 응답을 불러오지 못함";
     }
   } catch (e) {
     document.getElementById("notice").classList.remove("hidden");
