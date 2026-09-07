@@ -1,16 +1,8 @@
 services:
   - type: web
-    name: battery-used-recycling-monitor
-    runtime: python
+    name: used-battery-recycling-briefing
+    env: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    envVars:
-      - key: CACHE_TTL_SECONDS
-        value: 21600
-      - key: NEWS_LOOKBACK_MONTHS
-        value: 6
-      - key: MAX_ARTICLES_PER_ARCHIVE_REQUEST
-        value: 2500
-PYTHON_VERSION: 3.12.7

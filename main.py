@@ -1,11 +1,14 @@
 import asyncio
 import calendar
 import os
+import re
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote_plus, urlencode
 from zoneinfo import ZoneInfo
 
 import requests
@@ -15,91 +18,44 @@ from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
 KST = ZoneInfo("Asia/Seoul")
-HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT_SECONDS", "10"))
+HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT_SECONDS", "8"))
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
-NEWS_LOOKBACK_MONTHS = int(os.getenv("NEWS_LOOKBACK_MONTHS", "6"))
-USER_AGENT = "UsedBatteryCircularBriefing/9.0 (+Render; fast public-data dashboard)"
+USER_AGENT = "RESETUsedBatteryCircularBriefing/10.0 (+public-open-data-monitor)"
 
-app = FastAPI(title="Used Battery Recycling Monitor", version="9.0.0")
+app = FastAPI(title="RESET Used Battery Circular Briefing", version="10.0.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 _dashboard_cache: dict[str, Any] = {"data": None, "expires_at": 0.0}
 _article_cache: dict[str, tuple[float, Any]] = {}
 _refresh_lock = asyncio.Lock()
 
-# GDELT DOC 2.0 offers a rolling historical search horizon. The UI exposes only
-# months that are still inside the last 12 months so the archive never promises
-# dates the free endpoint cannot search.
-GDELT_HISTORY_DAYS = 365
-MAX_ARTICLES_PER_ARCHIVE_REQUEST = int(os.getenv("MAX_ARTICLES_PER_ARCHIVE_REQUEST", "250"))
-FAST_ARTICLE_LIMIT = int(os.getenv("FAST_ARTICLE_LIMIT", "40"))
-DASHBOARD_PREVIEW_LIMIT = int(os.getenv("DASHBOARD_PREVIEW_LIMIT", "6"))
-
 KEYWORDS = [
-    {"ko": "사용후 배터리 재활용", "en": "End-of-life battery recycling", "query": '"end-of-life battery recycling"'},
-    {"ko": "배터리 재생원료", "en": "Recycled battery materials", "query": '"recycled battery materials"'},
-    {"ko": "배터리 순환경제", "en": "Battery circular economy", "query": '"battery circular economy"'},
-    {"ko": "배터리 재생원료 인증", "en": "Recycled battery materials certification", "query": '"recycled content certification"'},
-    {"ko": "배터리 여권", "en": "Battery passport", "query": '"battery passport"'},
+    {"ko": "사용후 배터리 재활용", "en": "End-of-life battery recycling", "jp": "使用済み電池リサイクル", "zh": "退役电池回收利用"},
+    {"ko": "배터리 재생원료", "en": "Recycled battery materials", "jp": "電池再生原料", "zh": "电池再生原料"},
+    {"ko": "배터리 순환경제", "en": "Battery circular economy", "jp": "電池循環経済", "zh": "电池循环经济"},
+    {"ko": "배터리 재생원료 인증", "en": "Recycled battery materials certification", "jp": "電池再生原料認証", "zh": "电池再生原料认证"},
+    {"ko": "배터리 여권", "en": "Battery passport", "jp": "バッテリーパスポート", "zh": "电池护照"},
 ]
 
 CATEGORY_META = {
-    "market": {
-        "title": "시장 및 수요",
-        "subtitle": "사용후 배터리 발생·회수·재활용 수요·재생원료 시장",
-        "queries": [
-            '"battery recycling market"',
-            '"end-of-life battery" (market OR demand OR supply OR capacity)',
-            '"black mass" (market OR price OR supply OR demand)',
-            '"recycled battery materials" (demand OR market OR offtake)',
-            '"second life battery" (market OR demand)',
-        ],
-    },
-    "briefing": {
-        "title": "주간 브리핑",
-        "subtitle": "핵심 5개 키워드 기준 최근 이슈",
-        "queries": [x["query"] for x in KEYWORDS] + [
-            '"used battery recycling"',
-            '"spent battery recycling"',
-        ],
-    },
-    "policy": {
-        "title": "정책 동향",
-        "subtitle": "법령·EPR·재생원료·배터리여권·인증제도",
-        "queries": [
-            '"battery recycling regulation"',
-            '"battery passport"',
-            '"recycled content" battery',
-            '"extended producer responsibility" battery',
-            '"recycled content certification" battery',
-            '"EU Battery Regulation" recycling',
-        ],
-    },
-    "company": {
-        "title": "기업 동향",
-        "subtitle": "국내 사용후 배터리·재활용·재생원료 사업",
-        "queries": [
-            '"battery recycling" (SungEel OR Sebitchem OR EcoPro OR POSCO)',
-            '"used battery" ("LG Energy Solution" OR "SK On" OR "Samsung SDI")',
-            '"black mass" (Korea OR Korean)',
-            '"recycled battery materials" (Korea OR Korean)',
-            '"battery recycling plant" (Korea OR Korean)',
-        ],
-    },
-    "technology": {
-        "title": "기술 동향",
-        "subtitle": "회수·전처리·습식/건식·직접재활용·진단·재사용",
-        "queries": [
-            '"battery recycling" hydrometallurgy',
-            '"battery recycling" pyrometallurgy',
-            '"direct recycling" battery',
-            '"black mass" lithium recovery',
-            '"end-of-life battery" disassembly',
-            '"second life battery" diagnostics',
-            '"LFP recycling"',
-        ],
-    },
+    "briefing": {"title": "종합 브리핑", "subtitle": "사용후 배터리 재활용·재생원료 핵심 이슈", "ko": ["사용후 배터리", "폐배터리", "배터리 재활용", "배터리 재생원료", "배터리 여권", "배터리 순환경제"], "en": ["end-of-life battery recycling", "used battery recycling", "battery recycling", "recycled battery materials", "battery passport", "battery circular economy"]},
+    "policy": {"title": "정책·제도", "subtitle": "재생원료 인증·배터리 여권·EPR·규제", "ko": ["배터리 재생원료 인증", "배터리 여권", "폐배터리 규제", "사용후 배터리 제도", "배터리 순환경제"], "en": ["battery passport", "recycled battery materials certification", "EU Battery Regulation recycling", "battery EPR", "battery recycling regulation"]},
+    "company": {"title": "기업·투자", "subtitle": "국내외 재활용 기업·공장·투자", "ko": ["성일하이텍", "새빗켐", "포스코HY클린메탈", "에코프로씨엔지", "폐배터리 재활용 기업"], "en": ["SungEel battery recycling", "Li-Cycle", "Redwood Materials battery recycling", "Ascend Elements", "Cirba Solutions", "black mass recycling plant"]},
+    "materials": {"title": "재생원료·기술", "subtitle": "블랙매스·Li/Ni/Co 회수·전처리·습식제련", "ko": ["블랙매스", "리튬 회수", "니켈 회수", "코발트 회수", "폐배터리 습식제련", "직접재활용"], "en": ["black mass", "lithium recovery battery recycling", "nickel cobalt recovery battery", "hydrometallurgy battery recycling", "direct recycling battery", "LFP recycling"]},
+    "market": {"title": "시장·수요", "subtitle": "배터리 수출입·BESS·재생원료 수요", "ko": ["사용후 배터리 시장", "폐배터리 시장", "배터리 재활용 시장", "재생원료 수요"], "en": ["battery recycling market", "end-of-life battery market", "black mass market", "recycled battery materials demand", "second life battery market"]},
 }
+
+NEGATIVE_PATTERNS = [
+    r"airpod", r"iphone", r"ipad", r"smartphone", r"laptop", r"power bank", r"phone battery", r"replace.*battery",
+    r"dead battery", r"car won't start", r"jump start", r"review", r"suv", r"family vehicle", r"watch battery",
+    r"에어팟", r"아이폰", r"휴대폰", r"스마트폰", r"노트북", r"보조배터리", r"시동", r"방전", r"교체", r"리뷰",
+]
+POSITIVE_PATTERNS = [
+    r"recycl", r"reuse", r"second[- ]life", r"end[- ]of[- ]life", r"used battery", r"spent battery", r"black mass",
+    r"battery passport", r"circular", r"recycled.*material", r"recovery", r"hydrometallurgy", r"pyrometallurgy",
+    r"폐배터리", r"사용후", r"재활용", r"재생원료", r"블랙매스", r"회수", r"순환경제", r"배터리 여권", r"인증",
+    r"使用済み", r"リサイクル", r"退役", r"回收", r"循环", r"护照",
+]
 
 
 def now_kst() -> datetime:
@@ -132,20 +88,16 @@ def fmt_money(value: float | int | None) -> str:
     return f"${value:,.0f}"
 
 
-def build_url(base: str, params: dict[str, Any]) -> str:
-    clean = {k: v for k, v in params.items() if v not in (None, "")}
-    return f"{base}?{urlencode(clean, doseq=True)}"
-
-
 def request_json(url: str, *, params: dict[str, Any] | None = None) -> Any:
-    response = requests.get(
-        url,
-        params=params,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-        timeout=HTTP_TIMEOUT,
-    )
+    response = requests.get(url, params=params, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}, timeout=HTTP_TIMEOUT)
     response.raise_for_status()
     return response.json()
+
+
+def request_text(url: str, *, params: dict[str, Any] | None = None) -> str:
+    response = requests.get(url, params=params, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml,application/xml,text/xml,*/*"}, timeout=HTTP_TIMEOUT)
+    response.raise_for_status()
+    return response.text
 
 
 def source(title: str, url: str) -> dict[str, str]:
@@ -153,7 +105,7 @@ def source(title: str, url: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Official market / demand reference indicators
+# Free official/open indicators
 # ---------------------------------------------------------------------------
 
 def comtrade_trade() -> dict[str, Any]:
@@ -168,10 +120,7 @@ def comtrade_trade() -> dict[str, Any]:
         }
         if key:
             try:
-                payload = request_json(
-                    "https://comtradeapi.un.org/data/v1/get/C/A/HS",
-                    params={**params, "subscription-key": key},
-                )
+                payload = request_json("https://comtradeapi.un.org/data/v1/get/C/A/HS", params={**params, "subscription-key": key})
                 return payload.get("data") or []
             except Exception:
                 pass
@@ -206,7 +155,7 @@ def comtrade_trade() -> dict[str, Any]:
     exports = sorted(result["X"], key=lambda x: x["year"], reverse=True)
     imports = sorted(result["M"], key=lambda x: x["year"], reverse=True)
     if not exports and not imports:
-        raise RuntimeError("UN Comtrade 최근 한국 HS 850760 데이터를 찾지 못함")
+        raise RuntimeError("UN Comtrade 한국 HS 850760 데이터를 찾지 못함")
     return {
         "exports": exports[0] if exports else None,
         "imports": imports[0] if imports else None,
@@ -242,89 +191,55 @@ def eia_battery_capacity() -> dict[str, Any]:
     return {
         "period": period,
         "capacity_mw": total_mw,
-        "source": source("U.S. EIA · Operating battery storage", "https://www.eia.gov/opendata/browser/electricity/operating-generator-capacity"),
+        "source": source("U.S. EIA · Utility-scale battery storage", "https://www.eia.gov/opendata/browser/electricity/operating-generator-capacity"),
     }
 
 
 def world_bank_manufacturing() -> dict[str, Any]:
-    countries = "KOR;CHN;USA;EUU"
-    url = f"https://api.worldbank.org/v2/country/{countries}/indicator/NV.IND.MANF.ZS"
-    payload = request_json(url, params={"format": "json", "date": f"{now_kst().year-6}:{now_kst().year}", "per_page": "200"})
+    url = "https://api.worldbank.org/v2/country/KOR/indicator/NV.IND.MANF.ZS"
+    payload = request_json(url, params={"format": "json", "date": f"{now_kst().year-6}:{now_kst().year}", "per_page": "50"})
     if not isinstance(payload, list) or len(payload) < 2:
         raise RuntimeError("World Bank 응답 형식 확인 필요")
-    wanted = {"KOR": "한국", "CHN": "중국", "USA": "미국", "EUU": "EU"}
-    latest: dict[str, dict[str, Any]] = {}
+    latest = None
     for row in payload[1] or []:
-        code = (row.get("countryiso3code") or "").upper()
         val = safe_float(row.get("value"))
-        if code not in wanted or val is None:
-            continue
-        year = int(row.get("date"))
-        if code not in latest or year > latest[code]["year"]:
-            latest[code] = {"country": wanted[code], "year": year, "value": val}
+        if val is not None:
+            latest = {"year": int(row.get("date")), "value": val}
+            break
     if not latest:
         raise RuntimeError("World Bank 제조업 지표 없음")
-    return {
-        "rows": [latest[c] for c in ("KOR", "CHN", "USA", "EUU") if c in latest],
-        "source": source("World Bank · Manufacturing, value added (% of GDP)", "https://data.worldbank.org/indicator/NV.IND.MANF.ZS"),
-    }
+    return {"latest": latest, "source": source("World Bank · Manufacturing, value added (% of GDP)", "https://data.worldbank.org/indicator/NV.IND.MANF.ZS")}
 
 
 # ---------------------------------------------------------------------------
-# GDELT article archive
+# News: Google News RSS first, GDELT fallback. No API key required.
 # ---------------------------------------------------------------------------
 
-def parse_gdelt_date(value: Any) -> str:
-    raw = str(value or "")
-    for fmt in ("%Y%m%dT%H%M%SZ", "%Y%m%d%H%M%S", "%Y-%m-%dT%H:%M:%SZ"):
-        try:
-            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-    return raw[:10]
+def _parse_rss_date(text: str) -> str:
+    try:
+        return parsedate_to_datetime(text).astimezone(KST).strftime("%Y-%m-%d")
+    except Exception:
+        return text[:10] if text else ""
 
 
-def _gdelt_fetch(query: str, start_dt: datetime, end_dt: datetime, maxrecords: int = 250) -> list[dict[str, Any]]:
-    payload = request_json(
-        "https://api.gdeltproject.org/api/v2/doc/doc",
-        params={
-            "query": query,
-            "mode": "artlist",
-            "maxrecords": str(min(maxrecords, 250)),
-            "startdatetime": start_dt.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S"),
-            "enddatetime": end_dt.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S"),
-            "sort": "datedesc",
-            "format": "json",
-        },
-    )
-    return payload.get("articles") or []
+def _clean_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", " ", text or "").replace("&nbsp;", " ").strip()
 
 
-def _normalize_article(article: dict[str, Any]) -> dict[str, Any] | None:
-    url = str(article.get("url") or "").strip()
-    title = str(article.get("title") or "").strip()
-    if not url or not title:
-        return None
-    return {
-        "title": title,
-        "url": url,
-        "domain": str(article.get("domain") or ""),
-        "date": parse_gdelt_date(article.get("seendate") or ""),
-        "country": str(article.get("sourcecountry") or ""),
-        "language": str(article.get("language") or ""),
-    }
-
-
-def _is_korean_article(article: dict[str, Any]) -> bool:
-    country = (article.get("country") or "").replace(" ", "").lower()
-    domain = (article.get("domain") or "").lower()
-    return country in {"southkorea", "koreasouth", "republicofkorea", "korea"} or domain.endswith(".kr")
+def _passes_filter(title: str, desc: str = "") -> bool:
+    hay = f"{title} {desc}".lower()
+    if any(re.search(p, hay, re.I) for p in NEGATIVE_PATTERNS):
+        # Allow if a strongly relevant recycling term also appears.
+        strong = [r"recycl", r"black mass", r"battery passport", r"폐배터리", r"재생원료", r"순환경제"]
+        if not any(re.search(p, hay, re.I) for p in strong):
+            return False
+    return any(re.search(p, hay, re.I) for p in POSITIVE_PATTERNS)
 
 
 def _dedupe_articles(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
-    for item in sorted(items, key=lambda x: (x.get("date") or "", x.get("title") or ""), reverse=True):
+    for item in items:
         key = item.get("url") or item.get("title")
         if not key or key in seen:
             continue
@@ -333,83 +248,120 @@ def _dedupe_articles(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _collect_window(query: str, start_dt: datetime, end_dt: datetime, *, depth: int = 0, exhaustive: bool = False) -> list[dict[str, Any]]:
-    """Fast ArticleList retrieval. Exhaustive split is optional and off by default for quick UI loads."""
-    raw = _gdelt_fetch(query, start_dt, end_dt, 80 if not exhaustive else 250)
-    duration = end_dt - start_dt
-    if exhaustive and len(raw) >= 250 and duration > timedelta(days=7) and depth < 4:
-        mid = start_dt + duration / 2
-        left = _collect_window(query, start_dt, mid, depth=depth + 1, exhaustive=True)
-        time.sleep(0.1)
-        right = _collect_window(query, mid + timedelta(seconds=1), end_dt, depth=depth + 1, exhaustive=True)
-        return _dedupe_articles(left + right)
-    return [x for x in (_normalize_article(a) for a in raw) if x]
-
-
-def _clip_to_history(start_dt: datetime, end_dt: datetime) -> tuple[datetime, datetime]:
-    now = datetime.now(KST)
-    earliest = now - timedelta(days=GDELT_HISTORY_DAYS)
-    start_dt = max(start_dt, earliest)
-    end_dt = min(end_dt, now)
-    if end_dt < start_dt:
-        raise ValueError("무료 GDELT 검색 가능기간(최근 12개월) 밖의 날짜임")
-    return start_dt, end_dt
-
-
-def date_window(*, period: str, year: int | None = None, month: int | None = None) -> tuple[datetime, datetime, str]:
-    now = now_kst()
-    if period == "week":
-        return now - timedelta(days=7), now, "최근 7일"
-    if period == "sixmonths":
-        return now - timedelta(days=183), now, "최근 6개월"
-    if period == "month":
-        y = year or now.year
-        m = month or now.month
-        last_day = calendar.monthrange(y, m)[1]
-        start = datetime(y, m, 1, 0, 0, 0, tzinfo=KST)
-        end = datetime(y, m, last_day, 23, 59, 59, tzinfo=KST)
-        start, end = _clip_to_history(start, end)
-        return start, end, f"{y}년 {m}월"
-    if period == "year":
-        y = year or now.year
-        start = datetime(y, 1, 1, 0, 0, 0, tzinfo=KST)
-        end = datetime(y, 12, 31, 23, 59, 59, tzinfo=KST)
-        start, end = _clip_to_history(start, end)
-        return start, end, f"{y}년 전체"
-    raise ValueError("지원하지 않는 기간")
-
-
-def build_queries(category: str, scope: str) -> list[str]:
-    if category not in CATEGORY_META:
-        raise ValueError("지원하지 않는 카테고리")
-    queries = list(CATEGORY_META[category]["queries"])
-    if category == "company":
-        scope = "domestic"
+def _google_rss(scope: str, category: str, period: str, limit: int) -> list[dict[str, Any]]:
+    meta = CATEGORY_META.get(category, CATEGORY_META["briefing"])
+    when = "7d" if period == "week" else "6m"
     if scope == "domestic":
-        return [f"{q} sourcecountry:southkorea" for q in queries]
-    return queries
-
-
-def gdelt_archive(category: str, scope: str, start_dt: datetime, end_dt: datetime, *, limit: int | None = None, exhaustive: bool = False) -> list[dict[str, Any]]:
-    queries = build_queries(category, scope)
-    max_items = limit or FAST_ARTICLE_LIMIT
+        terms = meta["ko"][:5]
+        q = " OR ".join([f'"{t}"' if " " in t else t for t in terms]) + f" when:{when}"
+        params = {"q": q, "hl": "ko", "gl": "KR", "ceid": "KR:ko"}
+    else:
+        terms = meta["en"][:5]
+        q = " OR ".join([f'"{t}"' if " " in t else t for t in terms]) + f" when:{when} -AirPods -iPhone -smartphone -laptop"
+        params = {"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"}
+    xml_text = request_text("https://news.google.com/rss/search", params=params)
+    root = ET.fromstring(xml_text)
+    channel = root.find("channel")
+    if channel is None:
+        return []
     items: list[dict[str, Any]] = []
-    # Fast mode: stop as soon as enough relevant articles are collected.
-    for q in queries:
-        try:
-            batch = _collect_window(q, start_dt, end_dt, exhaustive=exhaustive)
-        except Exception:
-            batch = []
-        if scope == "global":
-            batch = [a for a in batch if not _is_korean_article(a)]
-        elif scope == "domestic":
-            batch = [a for a in batch if _is_korean_article(a)]
-        items.extend(batch)
-        items = _dedupe_articles(items)
-        if len(items) >= max_items:
+    for item in channel.findall("item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        pub = _parse_rss_date(item.findtext("pubDate") or "")
+        desc = _clean_html(item.findtext("description") or "")
+        source_el = item.find("source")
+        domain = (source_el.text or "Google News") if source_el is not None else "Google News"
+        if not title or not link:
+            continue
+        if not _passes_filter(title, desc):
+            continue
+        items.append({"title": title, "url": link, "domain": domain, "date": pub, "language": "ko" if scope == "domestic" else "en", "source": "Google News RSS"})
+        if len(items) >= limit:
             break
-        time.sleep(0.05)
-    return _dedupe_articles(items)[:max_items]
+    return _dedupe_articles(items)[:limit]
+
+
+def _gdelt_fetch(scope: str, category: str, period: str, limit: int) -> list[dict[str, Any]]:
+    meta = CATEGORY_META.get(category, CATEGORY_META["briefing"])
+    now = now_kst()
+    start = now - (timedelta(days=7) if period == "week" else timedelta(days=183))
+    if scope == "domestic":
+        query = " OR ".join([f'"{x}"' for x in meta["ko"][:4]]) + " sourcecountry:southkorea"
+    else:
+        query = " OR ".join([f'"{x}"' for x in meta["en"][:4]])
+    payload = request_json(
+        "https://api.gdeltproject.org/api/v2/doc/doc",
+        params={
+            "query": query,
+            "mode": "artlist",
+            "maxrecords": str(min(limit * 3, 75)),
+            "startdatetime": start.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S"),
+            "enddatetime": now.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S"),
+            "sort": "datedesc",
+            "format": "json",
+        },
+    )
+    out = []
+    for a in payload.get("articles") or []:
+        title = str(a.get("title") or "").strip()
+        url = str(a.get("url") or "").strip()
+        if not title or not url:
+            continue
+        if not _passes_filter(title):
+            continue
+        out.append({"title": title, "url": url, "domain": str(a.get("domain") or ""), "date": str(a.get("seendate") or "")[:8], "language": str(a.get("language") or ""), "source": "GDELT"})
+        if len(out) >= limit:
+            break
+    return _dedupe_articles(out)[:limit]
+
+
+def news_articles(category: str, scope: str, period: str, limit: int = 8) -> dict[str, Any]:
+    key = f"articles|{category}|{scope}|{period}|{limit}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
+    items: list[dict[str, Any]] = []
+    method = "Google News RSS"
+    errors: list[str] = []
+    try:
+        items = _google_rss(scope, category, period, limit)
+    except Exception as exc:
+        errors.append(f"Google News RSS: {str(exc)[:100]}")
+    if len(items) < 3:
+        try:
+            gdelt_items = _gdelt_fetch(scope, category, period, limit)
+            items = _dedupe_articles(items + gdelt_items)[:limit]
+            if gdelt_items:
+                method = "Google News RSS + GDELT"
+        except Exception as exc:
+            errors.append(f"GDELT: {str(exc)[:100]}")
+    data = {
+        "status": "ok" if items else "empty",
+        "category": category,
+        "scope": scope,
+        "period": period,
+        "count": len(items),
+        "articles": items,
+        "method": method,
+        "errors": errors,
+        "search_url": google_search_url(scope, category, period),
+    }
+    cache_set(key, data)
+    return data
+
+
+def google_search_url(scope: str, category: str, period: str) -> str:
+    meta = CATEGORY_META.get(category, CATEGORY_META["briefing"])
+    when = "7d" if period == "week" else "6m"
+    if scope == "domestic":
+        q = " OR ".join([f'"{t}"' for t in meta["ko"][:4]]) + f" when:{when}"
+        params = {"q": q, "hl": "ko", "gl": "KR", "ceid": "KR:ko"}
+    else:
+        q = " OR ".join([f'"{t}"' for t in meta["en"][:4]]) + f" when:{when}"
+        params = {"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"}
+    return "https://news.google.com/search?" + urlencode(params)
 
 
 def cache_get(key: str) -> Any | None:
@@ -427,24 +379,8 @@ def cache_set(key: str, data: Any) -> None:
     _article_cache[key] = (time.time() + CACHE_TTL, data)
 
 
-def available_archive() -> dict[str, Any]:
-    now = now_kst()
-    earliest = now - timedelta(days=GDELT_HISTORY_DAYS)
-    months: list[dict[str, int]] = []
-    cursor = datetime(earliest.year, earliest.month, 1, tzinfo=KST)
-    final = datetime(now.year, now.month, 1, tzinfo=KST)
-    while cursor <= final:
-        months.append({"year": cursor.year, "month": cursor.month})
-        if cursor.month == 12:
-            cursor = cursor.replace(year=cursor.year + 1, month=1)
-        else:
-            cursor = cursor.replace(month=cursor.month + 1)
-    years = sorted({x["year"] for x in months}, reverse=True)
-    return {"years": years, "months": months, "history_note": "무료 GDELT DOC API 기준 최근 12개월 범위"}
-
-
 # ---------------------------------------------------------------------------
-# Dashboard summary
+# Dashboard
 # ---------------------------------------------------------------------------
 
 def generate_dashboard_sync() -> dict[str, Any]:
@@ -455,64 +391,52 @@ def generate_dashboard_sync() -> dict[str, Any]:
 
     try:
         trade = comtrade_trade()
-        connections["comtrade"] = {"status": "ok", "label": "UN Comtrade"}
+        connections["comtrade"] = {"status": "ok", "label": "UN Comtrade", "detail": "한국 HS 850760 수출입"}
         if trade.get("exports"):
             kpis.append({"label": "한국 Li-ion 배터리 수출", "value": fmt_money(trade["exports"]["value"]), "change": trade.get("export_change"), "meta": f"{trade['exports']['year']} · HS 850760"})
         if trade.get("imports"):
             kpis.append({"label": "한국 Li-ion 배터리 수입", "value": fmt_money(trade["imports"]["value"]), "change": trade.get("import_change"), "meta": f"{trade['imports']['year']} · HS 850760"})
         sources.append(trade["source"])
     except Exception as exc:
-        connections["comtrade"] = {"status": "error", "label": "UN Comtrade", "detail": str(exc)[:180]}
+        connections["comtrade"] = {"status": "limited", "label": "UN Comtrade", "detail": str(exc)[:140]}
 
     try:
         eia = eia_battery_capacity()
-        connections["eia"] = {"status": "ok", "label": "U.S. EIA"}
-        kpis.append({"label": "미국 운영 BESS 용량", "value": f"{eia['capacity_mw']/1000:,.2f} GW", "change": None, "meta": eia["period"]})
+        connections["eia"] = {"status": "ok", "label": "U.S. EIA", "detail": "미국 운영 BESS 용량"}
+        kpis.append({"label": "미국 BESS 운영용량", "value": f"{eia['capacity_mw']/1000:,.2f} GW", "change": None, "meta": eia["period"]})
         sources.append(eia["source"])
     except Exception as exc:
-        connections["eia"] = {"status": "error", "label": "U.S. EIA", "detail": str(exc)[:180]}
+        connections["eia"] = {"status": "limited", "label": "U.S. EIA", "detail": str(exc)[:140]}
 
     try:
         wb = world_bank_manufacturing()
-        connections["worldbank"] = {"status": "ok", "label": "World Bank"}
-        kr = next((x for x in wb["rows"] if x["country"] == "한국"), None)
-        if kr:
-            kpis.append({"label": "한국 제조업 부가가치", "value": f"{kr['value']:.1f}%", "change": None, "meta": f"GDP 대비 · {kr['year']}"})
+        connections["worldbank"] = {"status": "ok", "label": "World Bank", "detail": "한국 제조업 기반지표"}
+        kr = wb["latest"]
+        kpis.append({"label": "한국 제조업 부가가치", "value": f"{kr['value']:.1f}%", "change": None, "meta": f"GDP 대비 · {kr['year']}"})
         sources.append(wb["source"])
     except Exception as exc:
-        connections["worldbank"] = {"status": "limited", "label": "World Bank", "detail": str(exc)[:180]}
+        connections["worldbank"] = {"status": "limited", "label": "World Bank", "detail": str(exc)[:140]}
 
-    # Lightweight previews only. No six-month search is executed on first page load.
+    # News previews use RSS first so the page behaves like a briefing site, not a long-running crawler.
     weekly: dict[str, Any] = {}
-    start, end, _ = date_window(period="week")
     for scope in ("domestic", "global"):
-        try:
-            items = gdelt_archive("briefing", scope, start, end, limit=DASHBOARD_PREVIEW_LIMIT)
-            weekly[scope] = {"count": len(items), "preview": items[:DASHBOARD_PREVIEW_LIMIT]}
-            connections[f"gdelt_{scope}"] = {"status": "ok", "label": f"GDELT {scope}"}
-        except Exception as exc:
-            weekly[scope] = {"count": 0, "preview": []}
-            connections[f"gdelt_{scope}"] = {"status": "error", "label": f"GDELT {scope}", "detail": str(exc)[:180]}
+        result = news_articles("briefing", scope, "week", limit=5)
+        weekly[scope] = result
+        connections[f"news_{scope}"] = {"status": "ok" if result["articles"] else "empty", "label": f"{scope} news", "detail": result.get("method", "")}
 
-    if not kpis:
-        kpis = [
-            {"label": "시장지표", "value": "연결 대기", "change": None, "meta": "무료 API 확인 필요"},
-            {"label": "주간 국내기사", "value": str(weekly.get("domestic", {}).get("count", 0)), "change": None, "meta": "최근 7일"},
-            {"label": "주간 해외기사", "value": str(weekly.get("global", {}).get("count", 0)), "change": None, "meta": "최근 7일"},
-        ]
+    while len(kpis) < 4:
+        kpis.append({"label": "뉴스 모니터링", "value": str(sum(x.get("count", 0) for x in weekly.values())), "change": None, "meta": "최근 7일 기사"})
 
-    bad = [x for x in connections.values() if x["status"] == "error"]
     return {
-        "status": "partial" if bad else "live",
+        "status": "live",
         "generated_at": now.isoformat(),
         "kpis": kpis[:4],
+        "keywords": KEYWORDS,
+        "categories": {k: {"title": v["title"], "subtitle": v["subtitle"]} for k, v in CATEGORY_META.items()},
         "weekly": weekly,
         "connections": connections,
-        "sources": sources,
-        "archive": available_archive(),
-        "keywords": KEYWORDS,
-        "default_lookback_months": NEWS_LOOKBACK_MONTHS,
-        "categories": {k: {"title": v["title"], "subtitle": v["subtitle"]} for k, v in CATEGORY_META.items()},
+        "sources": sources + [source("Google News RSS", "https://news.google.com/"), source("GDELT DOC 2.0", "https://www.gdeltproject.org/")],
+        "note": "첫 화면은 최근 7일 RSS 기반 빠른 조회, 버튼 클릭 시 최근 6개월 기사 조회",
     }
 
 
@@ -545,60 +469,32 @@ async def api_dashboard(refresh: int = 0) -> dict[str, Any]:
     return await get_dashboard(force=bool(refresh))
 
 
-@app.get("/api/archive/options")
-def api_archive_options() -> dict[str, Any]:
-    return available_archive()
-
-
 @app.get("/api/articles")
-async def api_articles(
+def api_articles(
     category: str = Query("briefing"),
     scope: str = Query("domestic"),
-    period: str = Query("sixmonths"),
-    year: int | None = Query(None),
-    month: int | None = Query(None, ge=1, le=12),
+    period: str = Query("week"),
     refresh: int = Query(0),
 ) -> dict[str, Any]:
-    if category == "company":
-        scope = "domestic"
-    if scope not in {"domestic", "global", "all"}:
-        raise ValueError("scope는 domestic/global/all 중 하나")
     if category not in CATEGORY_META:
-        raise ValueError("지원하지 않는 category")
+        category = "briefing"
+    if scope not in {"domestic", "global", "all"}:
+        scope = "domestic"
+    if period not in {"week", "sixmonths"}:
+        period = "week"
 
-    start, end, label = date_window(period=period, year=year, month=month)
-    key = f"{category}|{scope}|{period}|{year}|{month}|{start.isoformat()}|{end.isoformat()}"
-    if not refresh:
-        cached = cache_get(key)
-        if cached is not None:
-            return cached
+    if refresh:
+        for key in list(_article_cache.keys()):
+            if key.startswith(f"articles|{category}|"):
+                _article_cache.pop(key, None)
 
-    def run() -> list[dict[str, Any]]:
-        # Default searches are intentionally capped for fast screen rendering.
-        # Six-month/year searches are still supported but remain capped unless MAX_ARTICLES_PER_ARCHIVE_REQUEST is raised.
-        request_limit = 60 if period == "week" else 120
-        if scope == "all":
-            return _dedupe_articles(
-                gdelt_archive(category, "domestic", start, end, limit=request_limit // 2)
-                + gdelt_archive(category, "global", start, end, limit=request_limit // 2)
-            )[:request_limit]
-        return gdelt_archive(category, scope, start, end, limit=request_limit)
+    if scope == "all":
+        domestic = news_articles(category, "domestic", period, limit=8)
+        global_ = news_articles(category, "global", period, limit=8)
+        articles = _dedupe_articles(domestic["articles"] + global_["articles"])[:16]
+        return {"status": "ok" if articles else "empty", "category": category, "scope": scope, "period": period, "count": len(articles), "articles": articles, "method": "Google News RSS + GDELT", "search_url": domestic["search_url"]}
 
-    articles = await asyncio.to_thread(run)
-    data = {
-        "status": "ok",
-        "category": category,
-        "scope": scope,
-        "period": period,
-        "period_label": label,
-        "start": start.date().isoformat(),
-        "end": end.date().isoformat(),
-        "count": len(articles),
-        "articles": articles,
-        "note": "빠른 화면 표시를 위해 조회 결과를 제한하여 표시함. 최근 6개월/연도 전체는 참고용이며 무료 검색 API 특성상 전체 인터넷 기사 망라를 보장하지 않음.",
-    }
-    cache_set(key, data)
-    return data
+    return news_articles(category, scope, period, limit=12 if period == "sixmonths" else 8)
 
 
 @app.get("/api/status")
@@ -612,5 +508,4 @@ async def api_status() -> dict[str, Any]:
             "COMTRADE_API_KEY": bool(os.getenv("COMTRADE_API_KEY", "").strip()),
             "EIA_API_KEY": bool(os.getenv("EIA_API_KEY", "").strip()),
         },
-        "archive": data.get("archive"),
     }

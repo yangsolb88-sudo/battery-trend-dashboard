@@ -10,92 +10,76 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <div class="page">
-    <header class="top">
-      <div class="brandline">
-        <div class="brand-mark">R</div>
-        <div>
-          <p class="eyebrow">RESET CIRCULAR INTELLIGENCE</p>
-          <h1>Used Battery Circular Briefing</h1>
-          <p class="sub">사용후 배터리 재활용 · 재생원료 · 배터리 여권 · 순환경제 동향</p>
-        </div>
+  <main class="wrap">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">RESET USED BATTERY CIRCULAR BRIEFING</p>
+        <h1>사용후 배터리 재생원료 동향</h1>
+        <p class="desc">국내·해외 뉴스와 공공 데이터를 브리핑 화면으로 빠르게 확인</p>
       </div>
-      <div class="top-actions">
-        <div class="updated">
-          <span>LAST UPDATED</span>
-          <strong id="lastUpdated">-</strong>
-        </div>
-        <button id="reloadBtn" class="dark-btn">새로고침</button>
+      <div class="actions">
+        <div class="updated"><span>LAST UPDATED</span><strong id="lastUpdated">-</strong></div>
+        <button id="reloadBtn">새로고침</button>
       </div>
     </header>
 
     <section class="hero">
-      <div class="hero-copy">
-        <p class="live-dot"><i></i> FREE OPEN DATA MONITORING</p>
-        <h2>사용후 배터리 <em>재생원료 동향</em>을<br/>브리핑 화면으로 정리합니다.</h2>
-        <p>국내·해외 뉴스, 정책·규제, 기업 투자, 재활용 기술, 시장 기반지표를 무료 공개 API 기반으로 조회함</p>
+      <div>
+        <p class="label"><i></i> FREE OPEN DATA MONITORING</p>
+        <h2>사용후 배터리 <em>재활용·재생원료</em> 이슈를<br/>한 화면에서 확인합니다.</h2>
+        <p class="hero-text">Google News RSS, GDELT, UN Comtrade, U.S. EIA, World Bank 기반. OpenAI API 비용 없음</p>
       </div>
-      <div class="hero-panel">
-        <div><span>DATA SOURCE</span><strong>4+</strong><small>무료 공개 API</small></div>
-        <div><span>NEWS RANGE</span><strong>7d</strong><small>메인 즉시조회</small></div>
+      <div class="hero-stats">
+        <div><span>FOCUS</span><strong>EoL</strong><small>사용후 배터리</small></div>
+        <div><span>NEWS</span><strong>7d</strong><small>기본 빠른 조회</small></div>
         <div><span>ARCHIVE</span><strong>6m</strong><small>버튼 조회</small></div>
       </div>
     </section>
 
-    <section class="quick-grid" id="kpis"></section>
+    <section id="kpis" class="kpis"></section>
 
-    <section class="keyword-card">
-      <div class="section-title">
+    <section class="keywords panel">
+      <div class="panel-head">
         <p>MONITORING KEYWORDS</p>
-        <h3>핵심 검색어</h3>
+        <h3>핵심 키워드</h3>
       </div>
-      <div class="keywords" id="keywords"></div>
+      <div id="keywordGrid" class="keyword-grid"></div>
     </section>
 
-    <section class="brief-grid">
-      <article class="brief-card primary">
-        <div class="card-head">
-          <div>
-            <p>DOMESTIC NEWS</p>
-            <h3>국내 사용후 배터리 뉴스</h3>
-          </div>
-          <button data-load="domestic" data-category="briefing">전체보기</button>
+    <section class="news-grid">
+      <article class="news-card panel">
+        <div class="panel-head split">
+          <div><p>DOMESTIC NEWS</p><h3>국내 사용후 배터리 뉴스</h3></div>
+          <button data-open="domestic">전체보기</button>
         </div>
-        <div id="domesticPreview" class="article-preview skeleton-box">국내 기사 불러오는 중...</div>
+        <div id="domesticPreview" class="preview">불러오는 중...</div>
       </article>
-      <article class="brief-card primary">
-        <div class="card-head">
-          <div>
-            <p>GLOBAL NEWS</p>
-            <h3>해외 사용후 배터리 뉴스</h3>
-          </div>
-          <button data-load="global" data-category="briefing">전체보기</button>
+      <article class="news-card panel">
+        <div class="panel-head split">
+          <div><p>GLOBAL NEWS</p><h3>해외 사용후 배터리 뉴스</h3></div>
+          <button data-open="global">전체보기</button>
         </div>
-        <div id="globalPreview" class="article-preview skeleton-box">해외 기사 불러오는 중...</div>
+        <div id="globalPreview" class="preview">불러오는 중...</div>
       </article>
     </section>
 
-    <section class="category-board">
-      <div class="section-title">
+    <section class="topics panel">
+      <div class="panel-head">
         <p>TOPIC BOARD</p>
         <h3>분야별 동향</h3>
       </div>
       <div class="topic-grid">
-        <button class="topic active" data-category="briefing"><b>01</b><strong>주간 브리핑</strong><span>5개 핵심 키워드</span></button>
-        <button class="topic" data-category="policy"><b>02</b><strong>정책·규제</strong><span>배터리 여권·재생원료 인증</span></button>
+        <button class="topic active" data-category="briefing"><b>01</b><strong>종합 브리핑</strong><span>핵심 키워드 전체</span></button>
+        <button class="topic" data-category="policy"><b>02</b><strong>정책·제도</strong><span>인증·여권·규제</span></button>
         <button class="topic" data-category="company"><b>03</b><strong>기업·투자</strong><span>국내외 재활용 기업</span></button>
-        <button class="topic" data-category="technology"><b>04</b><strong>재활용 기술</strong><span>블랙매스·Li/Ni/Co 회수</span></button>
-        <button class="topic" data-category="market"><b>05</b><strong>시장·수요</strong><span>회수·재생원료 수요</span></button>
+        <button class="topic" data-category="materials"><b>04</b><strong>재생원료·기술</strong><span>블랙매스·회수공정</span></button>
+        <button class="topic" data-category="market"><b>05</b><strong>시장·수요</strong><span>수출입·BESS·수요</span></button>
       </div>
     </section>
 
-    <section class="article-board">
+    <section class="article-board panel">
       <div class="board-head">
-        <div>
-          <p class="eyebrow">ARTICLE LIST</p>
-          <h3 id="boardTitle">주간 브리핑</h3>
-          <p id="boardDesc">최근 7일 기준 국내·해외 관련 기사</p>
-        </div>
+        <div><p>ARTICLE LIST</p><h3 id="boardTitle">종합 브리핑</h3><span id="boardDesc">최근 7일 · 국내+해외</span></div>
         <div class="filters">
           <button class="scope active" data-scope="all">국내+해외</button>
           <button class="scope" data-scope="domestic">국내</button>
@@ -104,18 +88,15 @@
           <button class="period" data-period="sixmonths">최근 6개월</button>
         </div>
       </div>
-      <div id="articleList" class="article-list skeleton-box">기사 목록 준비 중...</div>
+      <div id="articleList" class="article-list">기사 목록 준비 중...</div>
     </section>
 
-    <section class="source-card">
-      <div class="section-title">
-        <p>DATA STATUS</p>
-        <h3>연결 상태 및 출처</h3>
-      </div>
-      <div id="statusList" class="status-list"></div>
-      <p class="note">무료 공개 API 특성상 제공기관·검색식·언어권에 따라 일부 기사는 누락될 수 있음. 공식 보고서 작성 시 원문 확인 필요</p>
+    <section class="status panel">
+      <div class="panel-head"><p>DATA STATUS</p><h3>연결 상태 및 출처</h3></div>
+      <div id="statusList" class="status-grid"></div>
+      <p class="footnote">무료 뉴스 RSS와 공개 API 특성상 일부 기사는 누락될 수 있음. 보고서 작성 시 원문 확인 필요</p>
     </section>
-  </div>
+  </main>
   <script src="/static/app.js"></script>
 </body>
 </html>
