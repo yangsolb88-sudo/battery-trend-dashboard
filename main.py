@@ -16,9 +16,9 @@ BASE_DIR = Path(__file__).resolve().parent
 KST = ZoneInfo("Asia/Seoul")
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "21600"))  # 6 hours
 HTTP_TIMEOUT = 22
-USER_AGENT = "BatteryTrendDashboard/2.0 (+Render; public-data dashboard)"
+USER_AGENT = "BatteryTrendDashboard/3.0 (+Render; public-data dashboard)"
 
-app = FastAPI(title="Battery Trend Briefing", version="2.0.0")
+app = FastAPI(title="Battery Trend Briefing", version="3.0.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 _cache: dict[str, Any] = {"data": None, "expires_at": 0.0}
@@ -90,59 +90,82 @@ def source(title: str, url: str) -> dict[str, str]:
 
 
 def comtrade_trade() -> dict[str, Any]:
-    """Korea (410) lithium-ion accumulators HS 850760, annual trade with world."""
+    """Korea (410) lithium-ion accumulators HS 850760, annual trade with World.
+
+    Uses the authenticated free endpoint when a key exists, then automatically
+    falls back to the public preview endpoint if the key/plan rejects the call.
+    """
     key = os.getenv("COMTRADE_API_KEY", "").strip()
     current_year = now_kst().year
-    years = [str(y) for y in range(current_year - 1, current_year - 5, -1)]
-    period = ",".join(years)
-    base = "https://comtradeapi.un.org/data/v1/get/C/A/HS" if key else "https://comtradeapi.un.org/public/v1/preview/C/A/HS"
-    headers = {"Ocp-Apim-Subscription-Key": key} if key else None
+    years = [current_year - i for i in range(1, 6)]  # completed/recent years
 
-    rows_by_flow: dict[str, list[dict[str, Any]]] = {}
-    for flow in ("X", "M"):
+    def fetch_one(year: int, flow: str) -> list[dict[str, Any]]:
         params = {
             "reporterCode": "410",
             "partnerCode": "0",
             "cmdCode": "850760",
             "flowCode": flow,
-            "period": period,
+            "period": str(year),
             "maxrecords": "50",
             "includeDesc": "true",
         }
-        payload = request_json(base, params=params, headers=headers)
-        rows = payload.get("data") or payload.get("results") or []
-        rows_by_flow[flow] = rows if isinstance(rows, list) else []
-
-    def normalize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        out = []
-        for row in rows:
-            year = row.get("refYear") or row.get("period")
+        errors = []
+        if key:
+            # UN Comtrade documents subscription-key as a supported query parameter.
             try:
-                year = int(str(year)[:4])
-            except (TypeError, ValueError):
-                continue
-            value = safe_float(row.get("primaryValue"))
-            if value is None:
-                continue
-            out.append({"year": year, "value": value})
-        out.sort(key=lambda x: x["year"], reverse=True)
-        return out
+                return (request_json(
+                    "https://comtradeapi.un.org/data/v1/get/C/A/HS",
+                    params={**params, "subscription-key": key},
+                ).get("data") or [])
+            except Exception as exc:
+                errors.append(f"auth:{type(exc).__name__}")
+        try:
+            return (request_json(
+                "https://comtradeapi.un.org/public/v1/preview/C/A/HS",
+                params=params,
+            ).get("data") or [])
+        except Exception as exc:
+            errors.append(f"preview:{type(exc).__name__}")
+            raise RuntimeError("UN Comtrade 호출 실패 (" + ", ".join(errors) + ")")
 
-    exports = normalize(rows_by_flow["X"])
-    imports = normalize(rows_by_flow["M"])
+    def normalize(rows: list[dict[str, Any]], year: int) -> dict[str, Any] | None:
+        for row in rows:
+            value = safe_float(row.get("primaryValue"))
+            if value is not None:
+                ref_year = row.get("refYear") or row.get("period") or year
+                try:
+                    ref_year = int(str(ref_year)[:4])
+                except (TypeError, ValueError):
+                    ref_year = year
+                return {"year": ref_year, "value": value}
+        return None
+
+    by_flow: dict[str, list[dict[str, Any]]] = {"X": [], "M": []}
+    for flow in ("X", "M"):
+        for year in years:
+            try:
+                item = normalize(fetch_one(year, flow), year)
+            except Exception:
+                item = None
+            if item:
+                by_flow[flow].append(item)
+            if len(by_flow[flow]) >= 2:
+                break
+
+    exports = sorted(by_flow["X"], key=lambda x: x["year"], reverse=True)
+    imports = sorted(by_flow["M"], key=lambda x: x["year"], reverse=True)
+    if not exports and not imports:
+        raise RuntimeError("UN Comtrade에서 한국 HS 850760 최근 연도 데이터를 찾지 못함")
+
     export_latest = exports[0] if exports else None
     import_latest = imports[0] if imports else None
     export_prev = exports[1] if len(exports) > 1 else None
     import_prev = imports[1] if len(imports) > 1 else None
-
-    public_params = {
-        "reporterCode": "410",
-        "partnerCode": "0",
-        "cmdCode": "850760",
-        "flowCode": "X,M",
-        "period": period,
-    }
-    src_url = build_url("https://comtradeapi.un.org/public/v1/preview/C/A/HS", public_params)
+    latest_year = max([x["year"] for x in (export_latest, import_latest) if x] or years[:1])
+    src_url = build_url(
+        "https://comtradeapi.un.org/public/v1/preview/C/A/HS",
+        {"reporterCode": "410", "partnerCode": "0", "cmdCode": "850760", "flowCode": "X", "period": str(latest_year)},
+    )
 
     return {
         "exports": export_latest,
@@ -154,7 +177,6 @@ def comtrade_trade() -> dict[str, Any]:
         "source": source("UN Comtrade · Korea HS 850760", src_url),
         "using_key": bool(key),
     }
-
 
 def eia_battery_capacity() -> dict[str, Any]:
     """Latest U.S. utility-scale operating battery storage (MWH) nameplate capacity."""
@@ -223,6 +245,7 @@ def alpha_quotes() -> list[dict[str, Any]]:
 
     symbols = [s.strip().upper() for s in os.getenv("STOCK_SYMBOLS", "ALB,SQM,TSLA").split(",") if s.strip()][:3]
     out = []
+    last_message = ""
     for symbol in symbols:
         payload = request_json(
             "https://www.alphavantage.co/query",
@@ -230,7 +253,7 @@ def alpha_quotes() -> list[dict[str, Any]]:
         )
         quote = payload.get("Global Quote") or {}
         if not quote:
-            # Free-tier limit or informational response; skip without exposing key/URL.
+            last_message = str(payload.get("Information") or payload.get("Note") or payload.get("Error Message") or "응답 데이터 없음")
             continue
         price = safe_float(quote.get("05. price"))
         change_pct = safe_float(quote.get("10. change percent"))
@@ -248,9 +271,9 @@ def alpha_quotes() -> list[dict[str, Any]]:
             ),
         })
     if not out:
-        raise RuntimeError("Alpha Vantage 무료 호출 한도 또는 데이터 응답 확인 필요")
+        detail = last_message[:160] if last_message else "무료 호출 한도 또는 API 키 상태 확인 필요"
+        raise RuntimeError("Alpha Vantage: " + detail)
     return out
-
 
 
 def _jsonstat_categories(payload: dict[str, Any], dim_id: str) -> list[tuple[str, str, int]]:
@@ -266,66 +289,44 @@ def _jsonstat_categories(payload: dict[str, Any], dim_id: str) -> list[tuple[str
 
 
 def eurostat_ev_registrations() -> dict[str, Any]:
-    """Latest EU zero-emission/battery-only passenger-car registrations from Eurostat. No API key required."""
-    base = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/road_eqr_zev"
-    payload = request_json(base, params={"lang": "en", "geo": "EU27_2020"})
+    """Latest EU battery-only electric passenger-car registrations.
+
+    Uses Eurostat road_eqr_carpda and selects the battery-only motor-energy
+    category dynamically from JSON-stat labels, avoiding hard-coded position indexes.
+    """
+    base = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/road_eqr_carpda"
+    payload = request_json(base, params={"lang": "en", "geo": "EU27_2020", "lastTimePeriod": "1"})
     ids = payload.get("id") or []
     sizes = payload.get("size") or []
     values = payload.get("value") or []
-    if not ids or not sizes or not values:
-        raise RuntimeError("Eurostat road_eqr_zev 응답 형식 확인 필요")
+    if not ids or not sizes or values is None:
+        raise RuntimeError("Eurostat road_eqr_carpda 응답 형식 확인 필요")
 
     cats = {dim: _jsonstat_categories(payload, dim) for dim in ids}
-    time_dim = "time" if "time" in ids else ids[-1]
-    time_codes = cats.get(time_dim, [])
-    if not time_codes:
-        raise RuntimeError("Eurostat 시간축 없음")
-
-    def year_key(item: tuple[str, str, int]) -> int:
-        code, label, _ = item
-        for candidate in (code, label):
-            try:
-                return int(str(candidate)[:4])
-            except ValueError:
-                pass
-        return -1
-
-    latest_time = max(time_codes, key=year_key)
-    target_year = year_key(latest_time)
-
-    preferred: dict[str, set[int]] = {}
-    for dim in ids:
-        entries = cats.get(dim, [])
-        if dim == time_dim:
-            preferred[dim] = {latest_time[2]}
-            continue
-        if dim == "geo":
-            matches = {pos for code, label, pos in entries if code == "EU27_2020" or label.strip().lower() in {"european union - 27 countries (from 2020)", "european union"}}
-            if matches:
-                preferred[dim] = matches
-                continue
-        if dim in {"freq"} and any(code == "A" for code, _, _ in entries):
-            preferred[dim] = {pos for code, _, pos in entries if code == "A"}
-            continue
-        if dim in {"unit"} and any(code == "NR" for code, _, _ in entries):
-            preferred[dim] = {pos for code, _, pos in entries if code == "NR"}
-            continue
-        passenger = {pos for _, label, pos in entries if "passenger car" in label.lower()}
-        if passenger:
-            preferred[dim] = passenger
-            continue
-        battery = {pos for _, label, pos in entries if "battery-only" in label.lower() or "battery only" in label.lower()}
-        if battery:
-            preferred[dim] = battery
-            continue
-
-    # JSON-stat flattened array: last dimension varies fastest.
+    # Work out flat-array strides; last dimension varies fastest.
     strides = []
     for i in range(len(sizes)):
         stride = 1
         for later in sizes[i + 1:]:
             stride *= int(later)
         strides.append(stride)
+
+    preferred: dict[str, set[int]] = {}
+    for dim in ids:
+        entries = cats.get(dim, [])
+        if dim == "geo":
+            m = {pos for code, label, pos in entries if code == "EU27_2020" or "27 countries" in label.lower()}
+            if m: preferred[dim] = m
+        elif dim == "freq":
+            m = {pos for code, label, pos in entries if code == "A" or label.lower() == "annual"}
+            if m: preferred[dim] = m
+        elif dim == "unit":
+            m = {pos for code, label, pos in entries if code == "NR" or "number" in label.lower()}
+            if m: preferred[dim] = m
+        else:
+            # Battery-only electric motor energy is the key selection.
+            m = {pos for code, label, pos in entries if "battery-only" in label.lower() or "battery only" in label.lower()}
+            if m: preferred[dim] = m
 
     candidates: list[tuple[float, list[int]]] = []
     for flat_index, raw in enumerate(values):
@@ -339,7 +340,7 @@ def eurostat_ev_registrations() -> dict[str, Any]:
         remain = flat_index
         for size, stride in zip(sizes, strides):
             pos = remain // stride
-            remain = remain % stride
+            remain %= stride
             coords.append(int(pos))
         ok = True
         for i, dim in enumerate(ids):
@@ -351,23 +352,31 @@ def eurostat_ev_registrations() -> dict[str, Any]:
             candidates.append((val, coords))
 
     if not candidates:
-        raise RuntimeError("Eurostat EU 승용차 등록값을 찾지 못함")
-    # If an extra unspecified dimension remains, the aggregate/passenger-car value is normally the largest relevant value.
+        raise RuntimeError("Eurostat EU battery-only 승용차 등록값을 찾지 못함")
     value, coords = max(candidates, key=lambda x: x[0])
 
     labels = {}
+    codes = {}
     for i, dim in enumerate(ids):
         entries = cats.get(dim, [])
-        match = next((label for code, label, pos in entries if pos == coords[i]), "")
-        labels[dim] = match
+        match = next(((code, label) for code, label, pos in entries if pos == coords[i]), ("", ""))
+        codes[dim], labels[dim] = match
+    year_text = codes.get("time") or labels.get("time") or ""
+    try:
+        year = int(str(year_text)[:4])
+    except (TypeError, ValueError):
+        year = now_kst().year - 1
+
+    # Sanity guard: EU annual BEV registrations should be a count, not a tiny rate.
+    if value < 100_000:
+        raise RuntimeError(f"Eurostat 선택값이 비정상적으로 작음 ({value:g}); 차원 선택 재확인 필요")
 
     return {
-        "year": target_year,
+        "year": year,
         "value": value,
-        "label": next((v for k, v in labels.items() if "passenger car" in v.lower()), "EU zero-emission passenger cars"),
-        "source": source("Eurostat · New zero-emission road vehicles (road_eqr_zev)", "https://ec.europa.eu/eurostat/databrowser/view/road_eqr_zev/default/table?lang=en"),
+        "label": "EU battery-only electric passenger-car registrations",
+        "source": source("Eurostat · New passenger cars by type of motor energy (road_eqr_carpda)", "https://ec.europa.eu/eurostat/databrowser/view/road_eqr_carpda/default/table?lang=en"),
     }
-
 
 def world_bank_manufacturing() -> dict[str, Any]:
     """Manufacturing value added (% of GDP) for key battery economies. No API key required."""
@@ -414,17 +423,22 @@ def parse_gdelt_date(value: str) -> str:
     return value[:10]
 
 
-def gdelt_articles(query: str, *, timespan: str = "7d", maxrecords: int = 6) -> list[dict[str, Any]]:
-    params = {
-        "query": query,
-        "mode": "artlist",
-        "maxrecords": str(maxrecords),
-        "timespan": timespan,
-        "sort": "datedesc",
-        "format": "json",
-    }
-    payload = request_json("https://api.gdeltproject.org/api/v2/doc/doc", params=params)
-    articles = payload.get("articles") or []
+def gdelt_articles(query: str, *, timespan: str = "1week", maxrecords: int = 6) -> list[dict[str, Any]]:
+    def fetch(span: str) -> list[dict[str, Any]]:
+        params = {
+            "query": query,
+            "mode": "artlist",
+            "maxrecords": str(maxrecords),
+            "timespan": span,
+            "sort": "datedesc",
+            "format": "json",
+        }
+        payload = request_json("https://api.gdeltproject.org/api/v2/doc/doc", params=params)
+        return payload.get("articles") or []
+
+    articles = fetch(timespan)
+    if not articles and timespan != "1month":
+        articles = fetch("1month")
     out = []
     seen_urls = set()
     for article in articles:
@@ -445,7 +459,6 @@ def gdelt_articles(query: str, *, timespan: str = "7d", maxrecords: int = 6) -> 
         if len(out) >= maxrecords:
             break
     return out
-
 
 def news_section(articles: list[dict[str, Any]], fallback: str) -> tuple[str, list[dict[str, str]]]:
     if not articles:
@@ -490,6 +503,18 @@ def assign_global_source_numbers(sections: dict[str, Any]) -> list[dict[str, Any
     return all_sources
 
 
+def _conn(label: str, status: str, detail: str = "", configured: bool | None = None) -> dict[str, Any]:
+    item: dict[str, Any] = {"status": status, "label": label, "detail": detail}
+    if configured is not None:
+        item["configured"] = configured
+    return item
+
+
+def _safe_error(exc: Exception) -> str:
+    text = str(exc).replace("\n", " ").strip()
+    return text[:220] if text else type(exc).__name__
+
+
 def generate_dashboard_sync() -> dict[str, Any]:
     generated = now_kst()
     connections: dict[str, dict[str, str]] = {}
@@ -499,46 +524,46 @@ def generate_dashboard_sync() -> dict[str, Any]:
     trade = None
     try:
         trade = comtrade_trade()
-        connections["comtrade"] = {"status": "ok", "label": "UN Comtrade"}
-    except Exception:
-        connections["comtrade"] = {"status": "error", "label": "UN Comtrade"}
+        connections["comtrade"] = _conn("UN Comtrade", "ok", "한국 HS 850760 수출입 연결", bool(os.getenv("COMTRADE_API_KEY", "").strip()))
+    except Exception as exc:
+        connections["comtrade"] = _conn("UN Comtrade", "error", _safe_error(exc), bool(os.getenv("COMTRADE_API_KEY", "").strip()))
         errors.append("UN Comtrade")
 
     eia = None
     try:
         eia = eia_battery_capacity()
-        connections["eia"] = {"status": "ok", "label": "U.S. EIA"}
-    except Exception:
-        connections["eia"] = {"status": "error", "label": "U.S. EIA"}
+        connections["eia"] = _conn("U.S. EIA", "ok", "미국 운영 배터리 저장용량 연결", True)
+    except Exception as exc:
+        connections["eia"] = _conn("U.S. EIA", "error", _safe_error(exc), bool(os.getenv("EIA_API_KEY", "").strip()))
         errors.append("U.S. EIA")
 
     quotes: list[dict[str, Any]] = []
     try:
         quotes = alpha_quotes()
-        connections["alpha"] = {"status": "ok", "label": "Alpha Vantage"}
-    except Exception:
-        connections["alpha"] = {"status": "error", "label": "Alpha Vantage"}
+        connections["alpha"] = _conn("Alpha Vantage", "ok", "무료 종가 지표 연결", True)
+    except Exception as exc:
+        connections["alpha"] = _conn("Alpha Vantage", "error", _safe_error(exc), bool(os.getenv("ALPHAVANTAGE_API_KEY", "").strip()))
         errors.append("Alpha Vantage")
 
     eurostat = None
     try:
         eurostat = eurostat_ev_registrations()
-        connections["eurostat"] = {"status": "ok", "label": "Eurostat"}
-    except Exception:
-        connections["eurostat"] = {"status": "error", "label": "Eurostat"}
+        connections["eurostat"] = _conn("Eurostat", "ok", "EU battery-only 승용차 등록 연결")
+    except Exception as exc:
+        connections["eurostat"] = _conn("Eurostat", "error", _safe_error(exc))
         errors.append("Eurostat")
 
     world_bank = None
     try:
         world_bank = world_bank_manufacturing()
-        connections["worldbank"] = {"status": "ok", "label": "World Bank"}
-    except Exception:
-        connections["worldbank"] = {"status": "error", "label": "World Bank"}
+        connections["worldbank"] = _conn("World Bank", "ok", "제조업 부가가치 지표 연결")
+    except Exception as exc:
+        connections["worldbank"] = _conn("World Bank", "error", _safe_error(exc))
         errors.append("World Bank")
 
     # 2) GDELT news — free, no key
     queries = {
-        "MATERIALS": '(battery OR lithium) (lithium OR nickel OR cobalt OR graphite OR cathode OR precursor) sourcelang:english',
+        "MATERIALS": '(lithium OR nickel OR cobalt OR graphite OR cathode OR precursor) battery sourcelang:english',
         "POLICY": '("battery regulation" OR "battery policy" OR IRA OR FEOC OR "critical raw materials") sourcelang:english',
         "RECYCLING": '("battery recycling" OR "black mass" OR "recycled content" OR hydrometallurgy) sourcelang:english',
         "COMPANIES": '("LG Energy Solution" OR "Samsung SDI" OR "SK On" OR CATL OR BYD OR Panasonic) battery sourcelang:english',
@@ -548,12 +573,12 @@ def generate_dashboard_sync() -> dict[str, Any]:
     gdelt_ok = 0
     for key, query in queries.items():
         try:
-            news[key] = gdelt_articles(query, timespan="7d", maxrecords=6)
+            news[key] = gdelt_articles(query, timespan="1week", maxrecords=6)
             if news[key]:
                 gdelt_ok += 1
         except Exception:
             news[key] = []
-    connections["gdelt"] = {"status": "ok" if gdelt_ok else "error", "label": "GDELT"}
+    connections["gdelt"] = _conn("GDELT", "ok" if gdelt_ok else "error", f"뉴스 카테고리 {gdelt_ok}/5 연결" if gdelt_ok else "GDELT 기사 목록 응답 없음")
     if not gdelt_ok:
         errors.append("GDELT")
 
@@ -727,6 +752,21 @@ async def index() -> HTMLResponse:
 @app.get("/api/dashboard")
 async def dashboard_api() -> dict[str, Any]:
     return await get_dashboard()
+
+
+@app.get("/api/status")
+async def status_api() -> dict[str, Any]:
+    data = await get_dashboard()
+    return {
+        "status": data.get("status"),
+        "generated_at": data.get("generated_at"),
+        "connections": data.get("connections", {}),
+        "environment": {
+            "COMTRADE_API_KEY": bool(os.getenv("COMTRADE_API_KEY", "").strip()),
+            "EIA_API_KEY": bool(os.getenv("EIA_API_KEY", "").strip()),
+            "ALPHAVANTAGE_API_KEY": bool(os.getenv("ALPHAVANTAGE_API_KEY", "").strip()),
+        },
+    }
 
 
 @app.get("/health")

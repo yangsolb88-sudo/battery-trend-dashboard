@@ -35,3 +35,7 @@ Render > Web Service > Environment에서 아래만 입력합니다.
 ## 참고
 
 무료 API는 제공기관별 발표 시차와 호출 한도가 있습니다. Alpha Vantage 무료 Global Quote는 최신 제공 종가 기준일 수 있습니다. Eurostat와 World Bank는 인증키 없이 공개 API를 호출합니다.
+
+
+## 문제 확인 URL
+배포 후 `/api/status`를 열면 API 키의 설정 여부(true/false)와 각 데이터 소스 연결 오류를 키 값 노출 없이 확인할 수 있습니다.

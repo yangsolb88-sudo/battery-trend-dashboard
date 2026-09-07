@@ -100,7 +100,9 @@ async function loadDashboard() {
     } else {
       label.textContent = latestData.status === "partial" ? "일부 API 연결" : latestData.status === "stale" ? "캐시 데이터 표시" : "연결 확인 필요";
       notice.classList.remove("hidden");
-      notice.textContent = latestData.reason || "일부 무료 API 응답을 불러오지 못함";
+      const bad = Object.values(latestData.connections || {}).filter(x => x.status !== "ok");
+      const details = bad.map(x => `${x.label}: ${x.detail || "연결 실패"}`).join(" / ");
+      notice.textContent = details || latestData.reason || "일부 무료 API 응답을 불러오지 못함";
     }
   } catch (e) {
     document.getElementById("notice").classList.remove("hidden");
