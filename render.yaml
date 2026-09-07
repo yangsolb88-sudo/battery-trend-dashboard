@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: used-battery-recycling-briefing
+    name: battery-used-recycling-monitor
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -8,8 +8,9 @@ services:
     healthCheckPath: /health
     envVars:
       - key: CACHE_TTL_SECONDS
-        value: "21600"
+        value: 21600
       - key: NEWS_LOOKBACK_MONTHS
-        value: "6"
-      - key: ENABLE_ALPHA
-        value: "false"
+        value: 6
+      - key: MAX_ARTICLES_PER_ARCHIVE_REQUEST
+        value: 2500
+PYTHON_VERSION: 3.12.7

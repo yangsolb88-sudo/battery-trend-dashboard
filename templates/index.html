@@ -1,122 +1,124 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>사용후 배터리 재활용 동향 브리핑</title>
-  <meta name="description" content="국내·해외 사용후 배터리 재활용 뉴스와 정책·기업·재생원료 동향을 무료 공개 API로 모니터링하는 대시보드">
-  <link rel="stylesheet" href="/static/styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="국내외 사용후 배터리 재활용 시장·뉴스·정책·기업·기술 동향 모니터링" />
+  <title>사용후 배터리 재활용 동향 모니터</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">B</div>
-        <div>
-          <b>Battery Circularity</b>
-          <span>Used Battery Monitor</span>
-        </div>
-      </div>
-      <nav id="nav" class="nav">
-        <button class="nav-item active" data-section="overview"><span>00</span>종합 브리핑</button>
-        <button class="nav-item" data-section="DOMESTIC_NEWS"><span>01</span>국내 뉴스</button>
-        <button class="nav-item" data-section="GLOBAL_NEWS"><span>02</span>해외 뉴스</button>
-        <button class="nav-item" data-section="POLICY"><span>03</span>정책·규제</button>
-        <button class="nav-item" data-section="COMPANIES"><span>04</span>기업·투자</button>
-        <button class="nav-item" data-section="RECYCLING_TECH"><span>05</span>재활용 기술</button>
-        <button class="nav-item" data-section="MARKET_STATS"><span>06</span>시장·통계</button>
-      </nav>
-      <div class="side-status">
-        <span class="status-dot"></span>
-        <div>
-          <b id="connectionLabel">데이터 확인 중</b>
-          <span>GDELT · Comtrade · EIA</span>
-        </div>
-      </div>
-    </aside>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">B</div>
+      <div><strong>Battery Circular</strong><span>Used Battery Monitor</span></div>
+    </div>
+    <nav class="nav" id="nav">
+      <button class="nav-item active" data-view="overview"><span>01</span> 종합</button>
+      <button class="nav-item" data-view="market"><span>02</span> 시장 및 수요</button>
+      <button class="nav-item" data-view="briefing"><span>03</span> 주간 브리핑</button>
+      <button class="nav-item" data-view="policy"><span>04</span> 정책 동향</button>
+      <button class="nav-item" data-view="company"><span>05</span> 기업 동향(국내)</button>
+      <button class="nav-item" data-view="technology"><span>06</span> 기술 동향</button>
+    </nav>
+    <div class="sidebar-foot"><i></i><div><b id="connectionLabel">데이터 확인 중</b><span>Free / Public APIs</span></div></div>
+  </aside>
 
-    <main class="main">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">USED BATTERY RECYCLING INTELLIGENCE</p>
-          <h1>사용후 배터리 재활용 동향 브리핑</h1>
-          <p class="top-desc">국내·해외 사용후 배터리 재활용 뉴스, 정책, 기업, 재생원료 이슈를 최근 6개월 기준으로 자동 정리</p>
-        </div>
-        <div class="top-actions">
-          <div class="updated">
-            <span>LAST UPDATED</span>
-            <strong id="updatedAt">불러오는 중</strong>
-          </div>
-          <button id="reloadBtn" class="refresh-btn" type="button">새로고침</button>
-        </div>
-      </header>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">USED BATTERY RECYCLING INTELLIGENCE</p>
+        <h1>사용후 배터리 재활용 동향 모니터</h1>
+        <p class="top-desc">시장·주간 브리핑·정책·국내 기업·기술 동향을 기사 원문 단위로 조회</p>
+      </div>
+      <div class="top-actions">
+        <div class="updated"><span>LAST UPDATED</span><strong id="updatedAt">불러오는 중</strong></div>
+        <button id="reloadBtn" class="refresh-btn">새로고침</button>
+      </div>
+    </header>
 
+    <section id="overviewView" class="view active-view">
       <section class="hero-panel">
-        <div class="hero-copy">
-          <span class="live-pill"><i></i> USED BATTERY / RECYCLING MONITORING</span>
-          <h2>국내 뉴스와 해외 뉴스를<br><em>사용후 배터리 재활용 중심</em>으로 분리합니다.</h2>
-          <p>사용후 배터리 재활용, 배터리 재생원료, 배터리 순환경제, 배터리 재생원료 인증, 배터리 여권을 핵심 검색축으로 설정했습니다.</p>
+        <div>
+          <span class="live-pill"><i></i> END-OF-LIFE BATTERY MONITORING</span>
+          <h2>요약 몇 건이 아니라<br><em>관련 기사 원문을 모아봅니다.</em></h2>
+          <p>기본 조사범위는 최근 6개월이며, 주간 브리핑은 최근 7일을 기본값으로 사용함. 해당 연도는 월별로 조회하거나 연도 전체를 한 번에 모아볼 수 있음.</p>
         </div>
         <div class="hero-stat">
-          <div><span>국내 뉴스</span><strong id="domesticCount">–</strong><small>최근 6개월</small></div>
-          <div><span>해외 뉴스</span><strong id="globalCount">–</strong><small>최근 6개월</small></div>
-          <div><span>SOURCE</span><strong id="sourceCount">–</strong><small>원문 링크</small></div>
-        </div>
-      </section>
-
-      <section class="keyword-panel">
-        <div class="keyword-panel-head">
-          <div>
-            <span class="section-kicker">MONITORING KEYWORDS</span>
-            <h3>사용후 배터리 재활용 핵심키워드</h3>
-          </div>
-          <div class="period-badge">기본 조사기간 <strong>최근 6개월</strong></div>
-        </div>
-        <div class="keyword-table-wrap">
-          <table class="keyword-table">
-            <thead><tr><th>No.</th><th>한국어</th><th>English</th><th>日本語</th><th>中文（简体）</th></tr></thead>
-            <tbody id="keywordBody">
-              <tr><td>1</td><td>사용후 배터리 재활용</td><td>End-of-life battery recycling</td><td>使用済み電池リサイクル</td><td>退役电池回收利用</td></tr>
-              <tr><td>2</td><td>배터리 재생원료</td><td>Recycled battery materials</td><td>電池再生原料</td><td>电池再生原料</td></tr>
-              <tr><td>3</td><td>배터리 순환경제</td><td>Battery circular economy</td><td>電池循環経済</td><td>电池循环经济</td></tr>
-              <tr><td>4</td><td>배터리 재생원료 인증</td><td>Recycled battery materials certification</td><td>電池再生原料認証</td><td>电池再生原料认证</td></tr>
-              <tr><td>5</td><td>배터리 여권</td><td>Battery passport</td><td>バッテリーパスポート</td><td>电池护照</td></tr>
-            </tbody>
-          </table>
+          <div><span>국내 주간</span><strong id="domesticCount">–</strong><small>최근 7일</small></div>
+          <div><span>해외 주간</span><strong id="globalCount">–</strong><small>최근 7일</small></div>
+          <div><span>기본 조사</span><strong>6M</strong><small>최근 6개월</small></div>
         </div>
       </section>
 
       <section id="notice" class="notice hidden"></section>
       <section id="kpiGrid" class="kpi-grid"></section>
 
-      <section id="loading" class="loading-grid">
-        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
-        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+      <section class="overview-grid">
+        <article class="overview-card">
+          <div class="card-head"><div><span>WEEKLY BRIEFING</span><h3>이번 주 국내</h3></div><button data-open="briefing" data-scope="domestic">전체보기</button></div>
+          <div id="domesticPreview" class="preview-list"></div>
+        </article>
+        <article class="overview-card">
+          <div class="card-head"><div><span>WEEKLY BRIEFING</span><h3>이번 주 해외</h3></div><button data-open="briefing" data-scope="global">전체보기</button></div>
+          <div id="globalPreview" class="preview-list"></div>
+        </article>
       </section>
 
-      <section id="dashboard" class="dashboard-grid hidden"></section>
+      <details class="keyword-details">
+        <summary>검색에 사용하는 핵심 키워드 보기</summary>
+        <div class="keyword-grid">
+          <div><b>01</b><span>사용후 배터리 재활용</span><small>End-of-life battery recycling</small></div>
+          <div><b>02</b><span>배터리 재생원료</span><small>Recycled battery materials</small></div>
+          <div><b>03</b><span>배터리 순환경제</span><small>Battery circular economy</small></div>
+          <div><b>04</b><span>배터리 재생원료 인증</span><small>Recycled battery materials certification</small></div>
+          <div><b>05</b><span>배터리 여권</span><small>Battery passport</small></div>
+        </div>
+      </details>
+    </section>
 
-      <section class="methodology">
-        <div>
-          <span class="section-kicker">DATA STRUCTURE</span>
-          <h3>수집·표시 방식</h3>
-        </div>
-        <div class="method-list">
-          <div><b>01</b><p><strong>국내 뉴스</strong><span>사용후 배터리·폐배터리·재활용·재생원료 중심</span></p></div>
-          <div><b>02</b><p><strong>해외 뉴스</strong><span>End-of-life battery·black mass·battery passport 중심</span></p></div>
-          <div><b>03</b><p><strong>정책·규제</strong><span>재생원료 인증·배터리 여권·EU Battery Regulation·EPR</span></p></div>
-          <div><b>04</b><p><strong>기업·투자</strong><span>국내외 재활용 기업, 공장, JV, 투자, MOU</span></p></div>
-          <div><b>05</b><p><strong>재활용 기술</strong><span>블랙매스, Li/Ni/Co 회수, 습식·건식·직접재활용</span></p></div>
-          <div><b>06</b><p><strong>시장·통계</strong><span>UN Comtrade, U.S. EIA, World Bank, Eurostat 보조지표</span></p></div>
-        </div>
+    <section id="archiveView" class="view hidden">
+      <section class="section-intro">
+        <div><span class="section-kicker" id="sectionKicker">ARTICLE ARCHIVE</span><h2 id="sectionTitle">주간 브리핑</h2><p id="sectionSubtitle"></p></div>
+        <div id="scopeTabs" class="scope-tabs"></div>
       </section>
 
-      <footer>
-        <span>Used Battery Recycling Briefing v6</span>
-        <span>무료 API 특성상 제공기관별 발표시차·호출한도에 따라 일부 데이터가 지연될 수 있음</span>
-      </footer>
-    </main>
-  </div>
-  <script src="/static/app.js"></script>
+      <section id="marketIndicators" class="kpi-grid hidden"></section>
+
+      <section class="archive-panel">
+        <div class="archive-head">
+          <div>
+            <span class="section-kicker">ARTICLE ARCHIVE</span>
+            <h3>기사 전체보기</h3>
+            <p>최근 6개월 · 해당연도 월별 · 연도 전체 조회</p>
+          </div>
+          <div class="quick-periods" id="quickPeriods">
+            <button data-period="week">최근 7일</button>
+            <button data-period="sixmonths" class="active">최근 6개월</button>
+          </div>
+        </div>
+
+        <div class="year-row"><span>연도</span><div id="yearButtons" class="filter-buttons"></div></div>
+        <div class="month-row"><span>월</span><div id="monthButtons" class="filter-buttons"></div></div>
+
+        <div class="result-head">
+          <div><strong id="resultTitle">기사 불러오는 중</strong><span id="resultMeta"></span></div>
+          <button id="forceArticleReload" class="text-btn">이 구간 다시 조회</button>
+        </div>
+        <div id="articleLoading" class="article-loading hidden">관련 기사를 수집하고 있음…</div>
+        <div id="articleList" class="article-list"></div>
+        <button id="moreBtn" class="more-btn hidden">기사 더 보기</button>
+        <p id="archiveNote" class="archive-note"></p>
+      </section>
+    </section>
+
+    <footer><span>Used Battery Recycling Monitor</span><span>무료 API 특성상 검색 제공기관이 수집하지 않은 기사는 포함되지 않을 수 있음</span></footer>
+  </main>
+</div>
+<script src="/static/app.js"></script>
 </body>
 </html>
