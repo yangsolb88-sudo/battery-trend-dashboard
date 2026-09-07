@@ -1,69 +1,46 @@
-# 사용후 배터리 재활용 동향 브리핑 v5
+# RESET Used Battery Circular Briefing — v9 Solar-style
 
-무료 공개 API 기반의 국내·해외 사용후 배터리 재활용 뉴스 모니터링 대시보드입니다.
+태양광 패널 브리핑 사이트와 유사한 **브리핑형 단일 페이지** 구성으로 만든 사용후 배터리 재활용·재생원료 동향 모니터입니다.
 
-## 기본 뉴스 조사 조건
+## 목적
 
-- 기본 조사기간: **최근 6개월**
-- 데이터 갱신 캐시: **6시간** (`CACHE_TTL_SECONDS=21600`)
-- 국내 뉴스: 한국 매체 중심
-- 해외 뉴스: 한국 외 글로벌 매체
-- 뉴스 API: GDELT DOC 2.0
+- 사용후 배터리 재활용
+- 배터리 재생원료
+- 배터리 순환경제
+- 배터리 재생원료 인증
+- 배터리 여권
 
-GDELT ArticleList의 넓은 검색구간 처리 특성을 고려하여 최근 6개월을 약 3개월 단위 검색창으로 나누어 조회한 뒤 통합합니다.
+위 키워드를 중심으로 국내/해외 기사와 정책·기업·기술·시장 동향을 빠르게 확인합니다.
 
-## 추적 키워드
+## 데이터 소스
 
-| No. | 한국어 | English | 日本語 | 中文（简体） |
-|---|---|---|---|---|
-| 1 | 사용후 배터리 재활용 | End-of-life battery recycling | 使用済み電池リサイクル | 退役电池回收利用 |
-| 2 | 배터리 재생원료 | Recycled battery materials | 電池再生原料 | 电池再生原料 |
-| 3 | 배터리 순환경제 | Battery circular economy | 電池循環経済 | 电池循环经济 |
-| 4 | 배터리 재생원료 인증 | Recycled battery materials certification | 電池再生原料認証 | 电池再生原料认证 |
-| 5 | 배터리 여권 | Battery passport | バッテリーパスポート | 电池护照 |
-
-화면에는 4개 언어 키워드 사전을 표시하고, GDELT의 글로벌 뉴스 검색에는 해당 개념의 영문 검색식을 사용하여 한국·영어권뿐 아니라 GDELT가 수집하는 글로벌 기사까지 검색합니다.
-
-## 사용 API
-
-- GDELT: 국내·해외 뉴스
-- UN Comtrade: 한국 HS 850760 수출입
-- U.S. EIA: 미국 운영 BESS 용량
-- Eurostat: EU battery-only 승용차 신규등록
-- World Bank: 제조업 기반지표
-- Alpha Vantage: 관련 상장사 보조 시장지표
+- GDELT DOC 2.0: 국내/해외 기사
+- UN Comtrade: 한국 리튬이온축전지 HS 850760 수출입
+- U.S. EIA: 미국 운영 BESS 저장용량
+- World Bank: 제조업 부가가치 보조지표
 
 ## Render 환경변수
 
-필수/권장 설정:
+필수
 
-```text
-COMTRADE_API_KEY=본인키
-EIA_API_KEY=본인키
-ALPHAVANTAGE_API_KEY=본인키
-CACHE_TTL_SECONDS=21600
-STOCK_SYMBOLS=ALB,SQM,TSLA
-NEWS_LOOKBACK_MONTHS=6
-```
+- `COMTRADE_API_KEY`
+- `EIA_API_KEY`
 
-GDELT, Eurostat, World Bank는 별도 API Key가 필요하지 않습니다.
+선택
 
-## Render 실행
+- `CACHE_TTL_SECONDS=21600`
+- `NEWS_LOOKBACK_MONTHS=6`
+- `FAST_ARTICLE_LIMIT=40`
+- `DASHBOARD_PREVIEW_LIMIT=6`
+- `HTTP_TIMEOUT_SECONDS=10`
 
-Build Command:
+## 배포 방법
 
-```text
-pip install -r requirements.txt
-```
+기존 GitHub 저장소에 전체 파일을 덮어쓰기 업로드 후 `Commit changes`를 누르면 Render가 자동 배포합니다.
 
-Start Command:
+## 확인 URL
 
-```text
-uvicorn main:app --host 0.0.0.0 --port $PORT
-```
-
-Health Check Path:
-
-```text
-/health
-```
+- `/` : 실제 웹사이트
+- `/api/status` : API 연결상태
+- `/api/dashboard` : 대시보드 데이터 원본
+- `/api/articles?category=briefing&scope=all&period=week` : 기사 데이터

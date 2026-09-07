@@ -3,122 +3,119 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="국내외 사용후 배터리 재활용 시장·뉴스·정책·기업·기술 동향 모니터링" />
-  <title>사용후 배터리 재활용 동향 모니터</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <title>RESET Used Battery Circular Briefing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-<div class="shell">
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">B</div>
-      <div><strong>Battery Circular</strong><span>Used Battery Monitor</span></div>
-    </div>
-    <nav class="nav" id="nav">
-      <button class="nav-item active" data-view="overview"><span>01</span> 종합</button>
-      <button class="nav-item" data-view="market"><span>02</span> 시장 및 수요</button>
-      <button class="nav-item" data-view="briefing"><span>03</span> 주간 브리핑</button>
-      <button class="nav-item" data-view="policy"><span>04</span> 정책 동향</button>
-      <button class="nav-item" data-view="company"><span>05</span> 기업 동향(국내)</button>
-      <button class="nav-item" data-view="technology"><span>06</span> 기술 동향</button>
-    </nav>
-    <div class="sidebar-foot"><i></i><div><b id="connectionLabel">데이터 확인 중</b><span>Free / Public APIs</span></div></div>
-  </aside>
-
-  <main class="main">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">USED BATTERY RECYCLING INTELLIGENCE</p>
-        <h1>사용후 배터리 재활용 동향 모니터</h1>
-        <p class="top-desc">시장·주간 브리핑·정책·국내 기업·기술 동향을 기사 원문 단위로 조회</p>
+  <div class="page">
+    <header class="top">
+      <div class="brandline">
+        <div class="brand-mark">R</div>
+        <div>
+          <p class="eyebrow">RESET CIRCULAR INTELLIGENCE</p>
+          <h1>Used Battery Circular Briefing</h1>
+          <p class="sub">사용후 배터리 재활용 · 재생원료 · 배터리 여권 · 순환경제 동향</p>
+        </div>
       </div>
       <div class="top-actions">
-        <div class="updated"><span>LAST UPDATED</span><strong id="updatedAt">불러오는 중</strong></div>
-        <button id="reloadBtn" class="refresh-btn">새로고침</button>
+        <div class="updated">
+          <span>LAST UPDATED</span>
+          <strong id="lastUpdated">-</strong>
+        </div>
+        <button id="reloadBtn" class="dark-btn">새로고침</button>
       </div>
     </header>
 
-    <section id="overviewView" class="view active-view">
-      <section class="hero-panel">
-        <div>
-          <span class="live-pill"><i></i> END-OF-LIFE BATTERY MONITORING</span>
-          <h2>요약 몇 건이 아니라<br><em>관련 기사 원문을 모아봅니다.</em></h2>
-          <p>기본 조사범위는 최근 6개월이며, 주간 브리핑은 최근 7일을 기본값으로 사용함. 해당 연도는 월별로 조회하거나 연도 전체를 한 번에 모아볼 수 있음.</p>
-        </div>
-        <div class="hero-stat">
-          <div><span>국내 주간</span><strong id="domesticCount">–</strong><small>최근 7일</small></div>
-          <div><span>해외 주간</span><strong id="globalCount">–</strong><small>최근 7일</small></div>
-          <div><span>기본 조사</span><strong>6M</strong><small>최근 6개월</small></div>
-        </div>
-      </section>
-
-      <section id="notice" class="notice hidden"></section>
-      <section id="kpiGrid" class="kpi-grid"></section>
-
-      <section class="overview-grid">
-        <article class="overview-card">
-          <div class="card-head"><div><span>WEEKLY BRIEFING</span><h3>이번 주 국내</h3></div><button data-open="briefing" data-scope="domestic">전체보기</button></div>
-          <div id="domesticPreview" class="preview-list"></div>
-        </article>
-        <article class="overview-card">
-          <div class="card-head"><div><span>WEEKLY BRIEFING</span><h3>이번 주 해외</h3></div><button data-open="briefing" data-scope="global">전체보기</button></div>
-          <div id="globalPreview" class="preview-list"></div>
-        </article>
-      </section>
-
-      <details class="keyword-details">
-        <summary>검색에 사용하는 핵심 키워드 보기</summary>
-        <div class="keyword-grid">
-          <div><b>01</b><span>사용후 배터리 재활용</span><small>End-of-life battery recycling</small></div>
-          <div><b>02</b><span>배터리 재생원료</span><small>Recycled battery materials</small></div>
-          <div><b>03</b><span>배터리 순환경제</span><small>Battery circular economy</small></div>
-          <div><b>04</b><span>배터리 재생원료 인증</span><small>Recycled battery materials certification</small></div>
-          <div><b>05</b><span>배터리 여권</span><small>Battery passport</small></div>
-        </div>
-      </details>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="live-dot"><i></i> FREE OPEN DATA MONITORING</p>
+        <h2>사용후 배터리 <em>재생원료 동향</em>을<br/>브리핑 화면으로 정리합니다.</h2>
+        <p>국내·해외 뉴스, 정책·규제, 기업 투자, 재활용 기술, 시장 기반지표를 무료 공개 API 기반으로 조회함</p>
+      </div>
+      <div class="hero-panel">
+        <div><span>DATA SOURCE</span><strong>4+</strong><small>무료 공개 API</small></div>
+        <div><span>NEWS RANGE</span><strong>7d</strong><small>메인 즉시조회</small></div>
+        <div><span>ARCHIVE</span><strong>6m</strong><small>버튼 조회</small></div>
+      </div>
     </section>
 
-    <section id="archiveView" class="view hidden">
-      <section class="section-intro">
-        <div><span class="section-kicker" id="sectionKicker">ARTICLE ARCHIVE</span><h2 id="sectionTitle">주간 브리핑</h2><p id="sectionSubtitle"></p></div>
-        <div id="scopeTabs" class="scope-tabs"></div>
-      </section>
+    <section class="quick-grid" id="kpis"></section>
 
-      <section id="marketIndicators" class="kpi-grid hidden"></section>
+    <section class="keyword-card">
+      <div class="section-title">
+        <p>MONITORING KEYWORDS</p>
+        <h3>핵심 검색어</h3>
+      </div>
+      <div class="keywords" id="keywords"></div>
+    </section>
 
-      <section class="archive-panel">
-        <div class="archive-head">
+    <section class="brief-grid">
+      <article class="brief-card primary">
+        <div class="card-head">
           <div>
-            <span class="section-kicker">ARTICLE ARCHIVE</span>
-            <h3>기사 전체보기</h3>
-            <p>최근 6개월 · 해당연도 월별 · 연도 전체 조회</p>
+            <p>DOMESTIC NEWS</p>
+            <h3>국내 사용후 배터리 뉴스</h3>
           </div>
-          <div class="quick-periods" id="quickPeriods">
-            <button data-period="week">최근 7일</button>
-            <button data-period="sixmonths" class="active">최근 6개월</button>
+          <button data-load="domestic" data-category="briefing">전체보기</button>
+        </div>
+        <div id="domesticPreview" class="article-preview skeleton-box">국내 기사 불러오는 중...</div>
+      </article>
+      <article class="brief-card primary">
+        <div class="card-head">
+          <div>
+            <p>GLOBAL NEWS</p>
+            <h3>해외 사용후 배터리 뉴스</h3>
           </div>
+          <button data-load="global" data-category="briefing">전체보기</button>
         </div>
-
-        <div class="year-row"><span>연도</span><div id="yearButtons" class="filter-buttons"></div></div>
-        <div class="month-row"><span>월</span><div id="monthButtons" class="filter-buttons"></div></div>
-
-        <div class="result-head">
-          <div><strong id="resultTitle">기사 불러오는 중</strong><span id="resultMeta"></span></div>
-          <button id="forceArticleReload" class="text-btn">이 구간 다시 조회</button>
-        </div>
-        <div id="articleLoading" class="article-loading hidden">관련 기사를 수집하고 있음…</div>
-        <div id="articleList" class="article-list"></div>
-        <button id="moreBtn" class="more-btn hidden">기사 더 보기</button>
-        <p id="archiveNote" class="archive-note"></p>
-      </section>
+        <div id="globalPreview" class="article-preview skeleton-box">해외 기사 불러오는 중...</div>
+      </article>
     </section>
 
-    <footer><span>Used Battery Recycling Monitor</span><span>무료 API 특성상 검색 제공기관이 수집하지 않은 기사는 포함되지 않을 수 있음</span></footer>
-  </main>
-</div>
-<script src="/static/app.js"></script>
+    <section class="category-board">
+      <div class="section-title">
+        <p>TOPIC BOARD</p>
+        <h3>분야별 동향</h3>
+      </div>
+      <div class="topic-grid">
+        <button class="topic active" data-category="briefing"><b>01</b><strong>주간 브리핑</strong><span>5개 핵심 키워드</span></button>
+        <button class="topic" data-category="policy"><b>02</b><strong>정책·규제</strong><span>배터리 여권·재생원료 인증</span></button>
+        <button class="topic" data-category="company"><b>03</b><strong>기업·투자</strong><span>국내외 재활용 기업</span></button>
+        <button class="topic" data-category="technology"><b>04</b><strong>재활용 기술</strong><span>블랙매스·Li/Ni/Co 회수</span></button>
+        <button class="topic" data-category="market"><b>05</b><strong>시장·수요</strong><span>회수·재생원료 수요</span></button>
+      </div>
+    </section>
+
+    <section class="article-board">
+      <div class="board-head">
+        <div>
+          <p class="eyebrow">ARTICLE LIST</p>
+          <h3 id="boardTitle">주간 브리핑</h3>
+          <p id="boardDesc">최근 7일 기준 국내·해외 관련 기사</p>
+        </div>
+        <div class="filters">
+          <button class="scope active" data-scope="all">국내+해외</button>
+          <button class="scope" data-scope="domestic">국내</button>
+          <button class="scope" data-scope="global">해외</button>
+          <button class="period active" data-period="week">최근 7일</button>
+          <button class="period" data-period="sixmonths">최근 6개월</button>
+        </div>
+      </div>
+      <div id="articleList" class="article-list skeleton-box">기사 목록 준비 중...</div>
+    </section>
+
+    <section class="source-card">
+      <div class="section-title">
+        <p>DATA STATUS</p>
+        <h3>연결 상태 및 출처</h3>
+      </div>
+      <div id="statusList" class="status-list"></div>
+      <p class="note">무료 공개 API 특성상 제공기관·검색식·언어권에 따라 일부 기사는 누락될 수 있음. 공식 보고서 작성 시 원문 확인 필요</p>
+    </section>
+  </div>
+  <script src="/static/app.js"></script>
 </body>
 </html>

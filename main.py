@@ -15,12 +15,12 @@ from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
 KST = ZoneInfo("Asia/Seoul")
-HTTP_TIMEOUT = 25
+HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT_SECONDS", "10"))
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
 NEWS_LOOKBACK_MONTHS = int(os.getenv("NEWS_LOOKBACK_MONTHS", "6"))
-USER_AGENT = "UsedBatteryTrendDashboard/7.0 (+Render; public-data dashboard)"
+USER_AGENT = "UsedBatteryCircularBriefing/9.0 (+Render; fast public-data dashboard)"
 
-app = FastAPI(title="Used Battery Recycling Monitor", version="7.0.0")
+app = FastAPI(title="Used Battery Recycling Monitor", version="9.0.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 _dashboard_cache: dict[str, Any] = {"data": None, "expires_at": 0.0}
@@ -31,7 +31,9 @@ _refresh_lock = asyncio.Lock()
 # months that are still inside the last 12 months so the archive never promises
 # dates the free endpoint cannot search.
 GDELT_HISTORY_DAYS = 365
-MAX_ARTICLES_PER_ARCHIVE_REQUEST = int(os.getenv("MAX_ARTICLES_PER_ARCHIVE_REQUEST", "2500"))
+MAX_ARTICLES_PER_ARCHIVE_REQUEST = int(os.getenv("MAX_ARTICLES_PER_ARCHIVE_REQUEST", "250"))
+FAST_ARTICLE_LIMIT = int(os.getenv("FAST_ARTICLE_LIMIT", "40"))
+DASHBOARD_PREVIEW_LIMIT = int(os.getenv("DASHBOARD_PREVIEW_LIMIT", "6"))
 
 KEYWORDS = [
     {"ko": "사용후 배터리 재활용", "en": "End-of-life battery recycling", "query": '"end-of-life battery recycling"'},
@@ -331,17 +333,15 @@ def _dedupe_articles(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _collect_window(query: str, start_dt: datetime, end_dt: datetime, *, depth: int = 0) -> list[dict[str, Any]]:
-    """Approximate exhaustive ArticleList retrieval by recursively splitting saturated windows."""
-    raw = _gdelt_fetch(query, start_dt, end_dt, 250)
+def _collect_window(query: str, start_dt: datetime, end_dt: datetime, *, depth: int = 0, exhaustive: bool = False) -> list[dict[str, Any]]:
+    """Fast ArticleList retrieval. Exhaustive split is optional and off by default for quick UI loads."""
+    raw = _gdelt_fetch(query, start_dt, end_dt, 80 if not exhaustive else 250)
     duration = end_dt - start_dt
-    # If the API hits its record ceiling, split the interval and search both halves.
-    # A one-day lower bound prevents runaway request counts.
-    if len(raw) >= 250 and duration > timedelta(days=1) and depth < 8:
+    if exhaustive and len(raw) >= 250 and duration > timedelta(days=7) and depth < 4:
         mid = start_dt + duration / 2
-        left = _collect_window(query, start_dt, mid, depth=depth + 1)
-        time.sleep(0.15)
-        right = _collect_window(query, mid + timedelta(seconds=1), end_dt, depth=depth + 1)
+        left = _collect_window(query, start_dt, mid, depth=depth + 1, exhaustive=True)
+        time.sleep(0.1)
+        right = _collect_window(query, mid + timedelta(seconds=1), end_dt, depth=depth + 1, exhaustive=True)
         return _dedupe_articles(left + right)
     return [x for x in (_normalize_article(a) for a in raw) if x]
 
@@ -390,12 +390,14 @@ def build_queries(category: str, scope: str) -> list[str]:
     return queries
 
 
-def gdelt_archive(category: str, scope: str, start_dt: datetime, end_dt: datetime) -> list[dict[str, Any]]:
+def gdelt_archive(category: str, scope: str, start_dt: datetime, end_dt: datetime, *, limit: int | None = None, exhaustive: bool = False) -> list[dict[str, Any]]:
     queries = build_queries(category, scope)
+    max_items = limit or FAST_ARTICLE_LIMIT
     items: list[dict[str, Any]] = []
+    # Fast mode: stop as soon as enough relevant articles are collected.
     for q in queries:
         try:
-            batch = _collect_window(q, start_dt, end_dt)
+            batch = _collect_window(q, start_dt, end_dt, exhaustive=exhaustive)
         except Exception:
             batch = []
         if scope == "global":
@@ -403,10 +405,11 @@ def gdelt_archive(category: str, scope: str, start_dt: datetime, end_dt: datetim
         elif scope == "domestic":
             batch = [a for a in batch if _is_korean_article(a)]
         items.extend(batch)
-        if len(items) >= MAX_ARTICLES_PER_ARCHIVE_REQUEST:
+        items = _dedupe_articles(items)
+        if len(items) >= max_items:
             break
-        time.sleep(0.18)
-    return _dedupe_articles(items)[:MAX_ARTICLES_PER_ARCHIVE_REQUEST]
+        time.sleep(0.05)
+    return _dedupe_articles(items)[:max_items]
 
 
 def cache_get(key: str) -> Any | None:
@@ -479,13 +482,13 @@ def generate_dashboard_sync() -> dict[str, Any]:
     except Exception as exc:
         connections["worldbank"] = {"status": "limited", "label": "World Bank", "detail": str(exc)[:180]}
 
-    # Lightweight counts/previews only. Full article archive is loaded on demand.
+    # Lightweight previews only. No six-month search is executed on first page load.
     weekly: dict[str, Any] = {}
     start, end, _ = date_window(period="week")
     for scope in ("domestic", "global"):
         try:
-            items = gdelt_archive("briefing", scope, start, end)
-            weekly[scope] = {"count": len(items), "preview": items[:6]}
+            items = gdelt_archive("briefing", scope, start, end, limit=DASHBOARD_PREVIEW_LIMIT)
+            weekly[scope] = {"count": len(items), "preview": items[:DASHBOARD_PREVIEW_LIMIT]}
             connections[f"gdelt_{scope}"] = {"status": "ok", "label": f"GDELT {scope}"}
         except Exception as exc:
             weekly[scope] = {"count": 0, "preview": []}
@@ -571,12 +574,15 @@ async def api_articles(
             return cached
 
     def run() -> list[dict[str, Any]]:
+        # Default searches are intentionally capped for fast screen rendering.
+        # Six-month/year searches are still supported but remain capped unless MAX_ARTICLES_PER_ARCHIVE_REQUEST is raised.
+        request_limit = 60 if period == "week" else 120
         if scope == "all":
             return _dedupe_articles(
-                gdelt_archive(category, "domestic", start, end)
-                + gdelt_archive(category, "global", start, end)
-            )[:MAX_ARTICLES_PER_ARCHIVE_REQUEST]
-        return gdelt_archive(category, scope, start, end)
+                gdelt_archive(category, "domestic", start, end, limit=request_limit // 2)
+                + gdelt_archive(category, "global", start, end, limit=request_limit // 2)
+            )[:request_limit]
+        return gdelt_archive(category, scope, start, end, limit=request_limit)
 
     articles = await asyncio.to_thread(run)
     data = {
@@ -589,7 +595,7 @@ async def api_articles(
         "end": end.date().isoformat(),
         "count": len(articles),
         "articles": articles,
-        "note": "GDELT ArticleList의 250건 한도를 회피하기 위해 포화 구간을 분할 조회·중복제거함. 다만 무료 검색 API 특성상 전체 인터넷 기사의 완전한 망라를 보장하지는 않음.",
+        "note": "빠른 화면 표시를 위해 조회 결과를 제한하여 표시함. 최근 6개월/연도 전체는 참고용이며 무료 검색 API 특성상 전체 인터넷 기사 망라를 보장하지 않음.",
     }
     cache_set(key, data)
     return data
