@@ -1,4 +1,4 @@
-const sectionOrder = ["DOMESTIC_NEWS","GLOBAL_NEWS","DOMESTIC_POLICY","GLOBAL_POLICY","RECYCLING","MARKET"];
+const sectionOrder = ["DOMESTIC_NEWS","GLOBAL_NEWS","POLICY","COMPANIES","RECYCLING_TECH","MARKET_STATS"];
 let latestData = null;
 
 function escapeHtml(value) {
@@ -28,7 +28,7 @@ function cardHtml(key, data, index) {
   const sources = data.sources || [];
   const sourceHtml = sources.length ? sources.map(s => `
     <a class="source-link" href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">[${s.number}] ${escapeHtml(s.title)}</a>`).join("") :
-    `<span class="source-link">출처 링크 없음</span>`;
+    `<span class="source-link muted">출처 링크 없음</span>`;
   const isNews = ["DOMESTIC_NEWS","GLOBAL_NEWS"].includes(key);
   return `
     <article class="brief-card ${isNews ? 'news-card' : ''}" data-key="${key}">
@@ -37,7 +37,7 @@ function cardHtml(key, data, index) {
           <h3>${escapeHtml(data.title)}</h3>
           <p>${escapeHtml(data.subtitle)}</p>
         </div>
-        <span class="brief-index">0${index + 1}</span>
+        <span class="brief-index">${String(index + 1).padStart(2, "0")}</span>
       </div>
       <div class="brief-body">${renderCitations(data.text, sources)}</div>
       <div class="sources">
@@ -63,6 +63,11 @@ function kpiHtml(kpi) {
     </article>`;
 }
 
+function keywordRows(items) {
+  if (!Array.isArray(items) || !items.length) return "";
+  return items.map(x => `<tr><td>${escapeHtml(x.no)}</td><td>${escapeHtml(x.ko)}</td><td>${escapeHtml(x.en)}</td><td>${escapeHtml(x.ja)}</td><td>${escapeHtml(x.zh)}</td></tr>`).join("");
+}
+
 function setFocus(key) {
   const grid = document.getElementById("dashboard");
   document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.section === key));
@@ -77,21 +82,23 @@ function setFocus(key) {
   grid.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
-function connectionSummary(connections) {
-  const items = Object.values(connections || {});
-  const bad = items.filter(x => x.status === "error");
-  const limited = items.filter(x => x.status === "limited");
-  if (bad.length) return `연결 확인 필요: ${bad.map(x => x.label).join(", ")}`;
-  if (limited.length) return `보조 API 일부 제한: ${limited.map(x => x.label).join(", ")}`;
+function connectionSummary(data) {
+  if (!data) return "";
+  const conns = data.connections || {};
+  if (conns.gdelt?.status === "error") return "뉴스 API 연결 확인 필요: GDELT";
+  const optional = Object.entries(conns)
+    .filter(([k, v]) => v.status === "limited" && !["gdelt", "alpha"].includes(k))
+    .map(([k, v]) => v.label);
+  if (optional.length) return `보조 통계 일부 제한: ${optional.join(", ")}`;
   return "";
 }
 
-async function loadDashboard() {
+async function loadDashboard(force = false) {
   const btn = document.getElementById("reloadBtn");
   btn.disabled = true;
   btn.textContent = "불러오는 중";
   try {
-    const res = await fetch("/api/dashboard", {cache:"no-store"});
+    const res = await fetch(`/api/dashboard${force ? "?force=true" : ""}`, {cache:"no-store"});
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     latestData = await res.json();
 
@@ -102,26 +109,24 @@ async function loadDashboard() {
     document.getElementById("updatedAt").textContent = `${formatDate(latestData.generated_at)} KST`;
     document.getElementById("domesticCount").textContent = latestData.news_counts?.domestic ?? 0;
     document.getElementById("globalCount").textContent = latestData.news_counts?.global ?? 0;
+    const keyRows = keywordRows(latestData.keyword_catalog);
+    if (keyRows) document.getElementById("keywordBody").innerHTML = keyRows;
     document.getElementById("loading").classList.add("hidden");
     grid.classList.remove("hidden");
 
     const notice = document.getElementById("notice");
     const label = document.getElementById("connectionLabel");
-    const warning = connectionSummary(latestData.connections);
+    const warning = connectionSummary(latestData);
     if (latestData.status === "live") {
-      label.textContent = "사용후 배터리 동향 연결";
-      if (warning) {
-        notice.classList.remove("hidden");
-        notice.classList.add("soft-notice");
-        notice.textContent = warning;
-      } else {
-        notice.classList.add("hidden");
-      }
+      label.textContent = "뉴스·통계 연결";
     } else {
-      label.textContent = latestData.status === "stale" ? "캐시 데이터 표시" : "일부 API 연결";
+      label.textContent = "일부 연결 확인";
+    }
+    if (warning) {
       notice.classList.remove("hidden");
-      notice.classList.remove("soft-notice");
-      notice.textContent = warning || latestData.reason || "일부 무료 API 응답을 불러오지 못함";
+      notice.textContent = warning;
+    } else {
+      notice.classList.add("hidden");
     }
   } catch (e) {
     document.getElementById("notice").classList.remove("hidden");
@@ -136,5 +141,5 @@ document.getElementById("nav").addEventListener("click", e => {
   const btn = e.target.closest(".nav-item");
   if (btn) setFocus(btn.dataset.section);
 });
-document.getElementById("reloadBtn").addEventListener("click", loadDashboard);
-loadDashboard();
+document.getElementById("reloadBtn").addEventListener("click", () => loadDashboard(true));
+loadDashboard(false);

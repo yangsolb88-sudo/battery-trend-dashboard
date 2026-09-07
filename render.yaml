@@ -1,23 +1,15 @@
 services:
   - type: web
-    name: battery-trend-dashboard
+    name: used-battery-recycling-briefing
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
-      - key: COMTRADE_API_KEY
-        sync: false
-      - key: EIA_API_KEY
-        sync: false
-      - key: ALPHAVANTAGE_API_KEY
-        sync: false
       - key: CACHE_TTL_SECONDS
         value: "21600"
-      - key: STOCK_SYMBOLS
-        value: "ALB,SQM,TSLA"
       - key: NEWS_LOOKBACK_MONTHS
         value: "6"
-      - key: PYTHON_VERSION
-        value: 3.13.5
+      - key: ENABLE_ALPHA
+        value: "false"
