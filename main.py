@@ -20,9 +20,9 @@ BASE_DIR = Path(__file__).resolve().parent
 KST = ZoneInfo("Asia/Seoul")
 HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT_SECONDS", "8"))
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
-USER_AGENT = "RESETUsedBatteryCircularBriefing/10.0 (+public-open-data-monitor)"
+USER_AGENT = "RESETUsedBatteryCircularBriefing/12.0 (+public-open-data-monitor)"
 
-app = FastAPI(title="RESET Used Battery Circular Briefing", version="10.0.0")
+app = FastAPI(title="RESET Used Battery Circular Briefing", version="12.0.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 _dashboard_cache: dict[str, Any] = {"data": None, "expires_at": 0.0}
@@ -38,12 +38,38 @@ KEYWORDS = [
 ]
 
 CATEGORY_META = {
-    "briefing": {"title": "종합 브리핑", "subtitle": "사용후 배터리 재활용·재생원료 핵심 이슈", "ko": ["사용후 배터리", "폐배터리", "배터리 재활용", "배터리 재생원료", "배터리 여권", "배터리 순환경제"], "en": ["end-of-life battery recycling", "used battery recycling", "battery recycling", "recycled battery materials", "battery passport", "battery circular economy"]},
-    "policy": {"title": "정책·제도", "subtitle": "재생원료 인증·배터리 여권·EPR·규제", "ko": ["배터리 재생원료 인증", "배터리 여권", "폐배터리 규제", "사용후 배터리 제도", "배터리 순환경제"], "en": ["battery passport", "recycled battery materials certification", "EU Battery Regulation recycling", "battery EPR", "battery recycling regulation"]},
-    "company": {"title": "기업·투자", "subtitle": "국내외 재활용 기업·공장·투자", "ko": ["성일하이텍", "새빗켐", "포스코HY클린메탈", "에코프로씨엔지", "폐배터리 재활용 기업"], "en": ["SungEel battery recycling", "Li-Cycle", "Redwood Materials battery recycling", "Ascend Elements", "Cirba Solutions", "black mass recycling plant"]},
-    "materials": {"title": "재생원료·기술", "subtitle": "블랙매스·Li/Ni/Co 회수·전처리·습식제련", "ko": ["블랙매스", "리튬 회수", "니켈 회수", "코발트 회수", "폐배터리 습식제련", "직접재활용"], "en": ["black mass", "lithium recovery battery recycling", "nickel cobalt recovery battery", "hydrometallurgy battery recycling", "direct recycling battery", "LFP recycling"]},
-    "market": {"title": "시장·수요", "subtitle": "배터리 수출입·BESS·재생원료 수요", "ko": ["사용후 배터리 시장", "폐배터리 시장", "배터리 재활용 시장", "재생원료 수요"], "en": ["battery recycling market", "end-of-life battery market", "black mass market", "recycled battery materials demand", "second life battery market"]},
+    "briefing": {
+        "title": "종합 브리핑",
+        "subtitle": "사용후 배터리 재활용·재생원료 핵심 이슈",
+        "ko": ["폐배터리", "배터리 재활용", "사용후 배터리", "배터리 재생원료", "배터리 여권", "배터리 순환경제"],
+        "en": ["battery recycling", "end-of-life battery", "used battery recycling", "recycled battery materials", "battery passport", "battery circular economy"],
+    },
+    "policy": {
+        "title": "정책·제도",
+        "subtitle": "재생원료 인증·배터리 여권·EPR·규제",
+        "ko": ["폐배터리", "배터리 재생원료", "배터리 여권", "배터리 규제", "사용후 배터리", "배터리 순환경제"],
+        "en": ["battery regulation", "battery passport", "EU Battery Regulation", "battery recycling regulation", "battery EPR", "recycled battery materials"],
+    },
+    "company": {
+        "title": "기업·투자",
+        "subtitle": "국내외 재활용 기업·공장·투자",
+        "ko": ["성일하이텍", "새빗켐", "포스코HY클린메탈", "에코프로씨엔지", "폐배터리 재활용 기업", "배터리 재활용 투자"],
+        "en": ["Li-Cycle", "Redwood Materials", "Ascend Elements", "Cirba Solutions", "SungEel battery recycling", "black mass recycling plant"],
+    },
+    "materials": {
+        "title": "재생원료·기술",
+        "subtitle": "블랙매스·Li/Ni/Co 회수·전처리·습식제련",
+        "ko": ["블랙매스", "폐배터리 재활용", "리튬 회수", "니켈 회수", "코발트 회수", "배터리 재생원료"],
+        "en": ["black mass", "battery recycling", "lithium recovery battery recycling", "nickel cobalt recovery battery", "hydrometallurgy battery recycling", "direct recycling battery"],
+    },
+    "market": {
+        "title": "시장·수요",
+        "subtitle": "배터리 수출입·BESS·재생원료 수요",
+        "ko": ["폐배터리 시장", "배터리 재활용 시장", "사용후 배터리 시장", "배터리 재생원료 수요", "블랙매스 시장"],
+        "en": ["battery recycling market", "end-of-life battery market", "black mass market", "recycled battery materials demand", "second life battery market"],
+    },
 }
+
 
 NEGATIVE_PATTERNS = [
     r"airpod", r"iphone", r"ipad", r"smartphone", r"laptop", r"power bank", r"phone battery", r"replace.*battery",
@@ -249,38 +275,65 @@ def _dedupe_articles(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _google_rss(scope: str, category: str, period: str, limit: int) -> list[dict[str, Any]]:
-    meta = CATEGORY_META.get(category, CATEGORY_META["briefing"])
-    when = "7d" if period == "week" else "6m"
-    if scope == "domestic":
-        terms = meta["ko"][:5]
-        q = " OR ".join([f'"{t}"' if " " in t else t for t in terms]) + f" when:{when}"
-        params = {"q": q, "hl": "ko", "gl": "KR", "ceid": "KR:ko"}
-    else:
-        terms = meta["en"][:5]
-        q = " OR ".join([f'"{t}"' if " " in t else t for t in terms]) + f" when:{when} -AirPods -iPhone -smartphone -laptop"
-        params = {"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"}
-    xml_text = request_text("https://news.google.com/rss/search", params=params)
-    root = ET.fromstring(xml_text)
-    channel = root.find("channel")
-    if channel is None:
-        return []
-    items: list[dict[str, Any]] = []
-    for item in channel.findall("item"):
-        title = (item.findtext("title") or "").strip()
-        link = (item.findtext("link") or "").strip()
-        pub = _parse_rss_date(item.findtext("pubDate") or "")
-        desc = _clean_html(item.findtext("description") or "")
-        source_el = item.find("source")
-        domain = (source_el.text or "Google News") if source_el is not None else "Google News"
-        if not title or not link:
-            continue
-        if not _passes_filter(title, desc):
-            continue
-        items.append({"title": title, "url": link, "domain": domain, "date": pub, "language": "ko" if scope == "domestic" else "en", "source": "Google News RSS"})
-        if len(items) >= limit:
-            break
-    return _dedupe_articles(items)[:limit]
+    """Fetch Google News RSS term-by-term.
 
+    Google News 한국어 검색에서 `when:6m`, `when:7d`, `when:30d`가 결과를
+    과도하게 비우는 경우가 있어 검색어에서는 제거함. 대신 RSS의 pubDate를
+    서버에서 후처리하여 최근 7일/최근 6개월 범위를 맞춤.
+    """
+    meta = CATEGORY_META.get(category, CATEGORY_META["briefing"])
+    cutoff = now_kst() - (timedelta(days=183) if period == "sixmonths" else timedelta(days=7))
+    if scope == "domestic":
+        terms = meta["ko"][:6]
+        base_params = {"hl": "ko", "gl": "KR", "ceid": "KR:ko"}
+        language = "ko"
+    else:
+        terms = meta["en"][:6]
+        base_params = {"hl": "en-US", "gl": "US", "ceid": "US:en"}
+        language = "en"
+
+    items: list[dict[str, Any]] = []
+    for term in terms:
+        q = f'"{term}"' if " " in term else term
+        if scope != "domestic":
+            q += " -AirPods -iPhone -smartphone -laptop -review -SUV"
+        try:
+            xml_text = request_text("https://news.google.com/rss/search", params={**base_params, "q": q})
+            root = ET.fromstring(xml_text)
+            channel = root.find("channel")
+            if channel is None:
+                continue
+            for item in channel.findall("item"):
+                title = (item.findtext("title") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                pub = _parse_rss_date(item.findtext("pubDate") or "")
+                desc = _clean_html(item.findtext("description") or "")
+                source_el = item.find("source")
+                domain = (source_el.text or "Google News") if source_el is not None else "Google News"
+                if not title or not link:
+                    continue
+                if pub:
+                    try:
+                        pub_dt = datetime.fromisoformat(pub)
+                        if pub_dt.tzinfo is None:
+                            pub_dt = pub_dt.replace(tzinfo=KST)
+                        if pub_dt < cutoff:
+                            continue
+                    except Exception:
+                        pass
+                # The query term already gives relevance. Keep the negative filter,
+                # but do not over-filter Korean policy/company news.
+                if any(re.search(p, f"{title} {desc}".lower(), re.I) for p in NEGATIVE_PATTERNS):
+                    continue
+                if scope != "domestic" and not _passes_filter(title, desc):
+                    continue
+                items.append({"title": title, "url": link, "domain": domain, "date": pub, "language": language, "source": f"Google News RSS · {term}"})
+                items = _dedupe_articles(items)
+                if len(items) >= limit:
+                    return items[:limit]
+        except Exception:
+            continue
+    return _dedupe_articles(items)[:limit]
 
 def _gdelt_fetch(scope: str, category: str, period: str, limit: int) -> list[dict[str, Any]]:
     meta = CATEGORY_META.get(category, CATEGORY_META["briefing"])
@@ -347,22 +400,38 @@ def news_articles(category: str, scope: str, period: str, limit: int = 8) -> dic
         "method": method,
         "errors": errors,
         "search_url": google_search_url(scope, category, period),
+        "search_urls": _news_search_urls(scope, category, period),
     }
     cache_set(key, data)
     return data
 
 
-def google_search_url(scope: str, category: str, period: str) -> str:
+def _news_search_urls(scope: str, category: str, period: str) -> list[dict[str, str]]:
     meta = CATEGORY_META.get(category, CATEGORY_META["briefing"])
-    when = "7d" if period == "week" else "6m"
-    if scope == "domestic":
-        q = " OR ".join([f'"{t}"' for t in meta["ko"][:4]]) + f" when:{when}"
-        params = {"q": q, "hl": "ko", "gl": "KR", "ceid": "KR:ko"}
-    else:
-        q = " OR ".join([f'"{t}"' for t in meta["en"][:4]]) + f" when:{when}"
-        params = {"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"}
-    return "https://news.google.com/search?" + urlencode(params)
+    urls: list[dict[str, str]] = []
+    if scope in {"domestic", "all"}:
+        domestic_terms = meta["ko"][:3]
+        for term in domestic_terms:
+            urls.append({
+                "label": f"Google 뉴스 · {term}",
+                "url": "https://news.google.com/search?" + urlencode({"q": term, "hl": "ko", "gl": "KR", "ceid": "KR:ko"}),
+            })
+        urls.append({
+            "label": "네이버 뉴스 · 폐배터리",
+            "url": "https://search.naver.com/search.naver?" + urlencode({"where": "news", "query": "폐배터리 배터리 재활용"}),
+        })
+    if scope in {"global", "all"}:
+        global_terms = meta["en"][:3]
+        for term in global_terms:
+            urls.append({
+                "label": f"Google News · {term}",
+                "url": "https://news.google.com/search?" + urlencode({"q": term, "hl": "en-US", "gl": "US", "ceid": "US:en"}),
+            })
+    return urls[:6]
 
+def google_search_url(scope: str, category: str, period: str) -> str:
+    urls = _news_search_urls(scope, category, period)
+    return urls[0]["url"] if urls else "https://news.google.com/"
 
 def cache_get(key: str) -> Any | None:
     item = _article_cache.get(key)
@@ -436,7 +505,7 @@ def generate_dashboard_sync() -> dict[str, Any]:
         "weekly": weekly,
         "connections": connections,
         "sources": sources + [source("Google News RSS", "https://news.google.com/"), source("GDELT DOC 2.0", "https://www.gdeltproject.org/")],
-        "note": "첫 화면은 최근 7일 RSS 기반 빠른 조회, 버튼 클릭 시 최근 6개월 기사 조회",
+        "note": "첫 화면은 RSS 기반 빠른 조회, 기사 목록은 기본 최근 6개월 기준. 결과가 없으면 Google/Naver 뉴스 직접검색 링크 제공",
     }
 
 
@@ -492,7 +561,7 @@ def api_articles(
         domestic = news_articles(category, "domestic", period, limit=8)
         global_ = news_articles(category, "global", period, limit=8)
         articles = _dedupe_articles(domestic["articles"] + global_["articles"])[:16]
-        return {"status": "ok" if articles else "empty", "category": category, "scope": scope, "period": period, "count": len(articles), "articles": articles, "method": "Google News RSS + GDELT", "search_url": domestic["search_url"]}
+        return {"status": "ok" if articles else "empty", "category": category, "scope": scope, "period": period, "count": len(articles), "articles": articles, "method": "Google News RSS + GDELT", "search_url": domestic["search_url"], "search_urls": _news_search_urls("all", category, period)}
 
     return news_articles(category, scope, period, limit=12 if period == "sixmonths" else 8)
 
